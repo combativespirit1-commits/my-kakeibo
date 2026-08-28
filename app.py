@@ -39,7 +39,7 @@ if not os.path.exists(EXCEL_FILE):
     )
     df_init.to_excel(EXCEL_FILE, index=False)
 
-# 高コントラスト＆高視認性テンキーデザイン
+# 全体デザイン・高コントラストCSS（履歴欄の文字視認性を強化）
 st.markdown("""
 <style>
     .stApp {
@@ -92,6 +92,26 @@ st.markdown("""
         font-weight: bold !important;
         border: none !important;
         height: 3.4rem !important;
+    }
+
+    /* 履歴欄（st.expander）の文字視認性向上 */
+    details {
+        background-color: #161B22 !important;
+        border: 1px solid #30363D !important;
+        border-radius: 8px !important;
+        margin-bottom: 8px !important;
+    }
+    summary {
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        font-size: 1.05rem !important;
+    }
+    details div[data-testid="stExpanderDetails"] {
+        background-color: #0D1117 !important;
+        color: #FFFFFF !important;
+    }
+    details div[data-testid="stExpanderDetails"] * {
+        color: #FFFFFF !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -299,23 +319,20 @@ for cat, budget in BUDGET_MAP.items():
     
     st.progress(percent)
 
-# --- 5. 履歴（編集・削除機能つき） ---
+# --- 5. 履歴（文字高視認性カスタマイズ適用） ---
 st.divider()
 st.subheader("📜 履歴（直近5件）")
 
 if os.path.exists(EXCEL_FILE):
     df_current = pd.read_excel(EXCEL_FILE)
     if not df_current.empty:
-        # 直近5件を取得（インデックス保持）
         recent_indices = df_current.tail(5).index[::-1]
         
         for idx in recent_indices:
             row = df_current.loc[idx]
             
-            # データ表示用コンテナ
             with st.expander(f"【{row['支払い日']}】{row['カテゴリ大']} ➔ {row['カテゴリ中']} : ¥{row['金額']:,}"):
                 
-                # 編集モードの場合
                 if st.session_state["edit_index"] == idx:
                     edit_pay_date = st.date_input("支払い日", pd.to_datetime(row["支払い日"]).date(), key=f"edit_date_{idx}")
                     edit_cat_l = st.selectbox("カテゴリ大", list(CATEGORY_MAP.keys()), index=list(CATEGORY_MAP.keys()).index(row["カテゴリ大"]) if row["カテゴリ大"] in CATEGORY_MAP else 0, key=f"edit_cat_l_{idx}")
@@ -344,9 +361,10 @@ if os.path.exists(EXCEL_FILE):
                             st.session_state["edit_index"] = None
                             st.rerun()
                 
-                # 通常表示モードの場合
                 else:
-                    st.write(f"**詳細:** {row['カテゴリ小'] if pd.notna(row['カテゴリ小']) else 'なし'} | **メモ:** {row['メモ'] if pd.notna(row['メモ']) else 'なし'}")
+                    st.markdown(f"**カテゴリ小:** {row['カテゴリ小'] if pd.notna(row['カテゴリ小']) and str(row['カテゴリ小']).strip() != '' else 'なし'}")
+                    st.markdown(f"**メモ:** {row['メモ'] if pd.notna(row['メモ']) and str(row['メモ']).strip() != '' else 'なし'}")
+                    st.markdown("---")
                     
                     c1, c2 = st.columns(2)
                     with c1:
