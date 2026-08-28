@@ -82,7 +82,7 @@ st.markdown("""
         margin-bottom: 10px;
     }
 
-    /* テンキー専用コンテナ設定（他のエレメントに影響を与えない） */
+    /* テンキー専用コンテナ設定 */
     .keypad-container {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -133,22 +133,14 @@ st.markdown("""
 
 st.title("💳 家計簿")
 
-# 当月データの自動集計処理
+# 全データの読み込み
 df_all = pd.read_excel(EXCEL_FILE)
-now = datetime.now()
-current_month_str = now.strftime("%Y-%m")
-
-if not df_all.empty and "支払い日" in df_all.columns:
-    df_all["支払い日_dt"] = pd.to_datetime(df_all["支払い日"], errors="coerce")
-    df_month = df_all[df_all["支払い日_dt"].dt.strftime("%Y-%m") == current_month_str]
-else:
-    df_month = pd.DataFrame()
 
 # セッション状態の初期化
 if "amount_str" not in st.session_state:
     st.session_state["amount_str"] = "0"
 
-# テンキー操作用クエリパラメータ処理（JavaScript連動用）
+# テンキー操作用クエリパラメータ処理
 query_params = st.query_params
 if "action" in query_params:
     action = query_params["action"]
@@ -179,7 +171,17 @@ if "action" in query_params:
 # --- 1. 日付 & カテゴリ設定 ---
 pay_date = st.date_input("🗓️ 支払い日", datetime.now())
 
-st.caption("🏷️ カテゴリ選択")
+# 選択された「支払い日」の年月を取得（月ごとに予算vs実績を自動判定）
+selected_month_str = pay_date.strftime("%Y-%m")
+selected_year_month_display = pay_date.strftime("%Y年%m月")
+
+if not df_all.empty and "支払い日" in df_all.columns:
+    df_all["支払い日_dt"] = pd.to_datetime(df_all["支払い日"], errors="coerce")
+    df_month = df_all[df_all["支払い日_dt"].dt.strftime("%Y-%m") == selected_month_str]
+else:
+    df_month = pd.DataFrame()
+
+st.caption(f"🏷️ カテゴリ選択（対象月: {selected_year_month_display}）")
 
 cat_large = st.radio(
     "カテゴリ大",
@@ -187,7 +189,7 @@ cat_large = st.radio(
     horizontal=True
 )
 
-# 選択中のカテゴリ大の「予算 vs 実績」プログレスバー表示
+# 選択中のカテゴリ大の「予算 vs 実績」表示（選択された支払い日の対象月で集計）
 selected_budget = BUDGET_MAP.get(cat_large, 0)
 if not df_month.empty and "カテゴリ大" in df_month.columns:
     selected_spent = df_month[df_month["カテゴリ大"] == cat_large]["金額"].sum()
@@ -198,11 +200,11 @@ selected_remaining = selected_budget - selected_spent
 selected_percent = min(selected_spent / selected_budget, 1.0) if selected_budget > 0 else 0.0
 
 if selected_budget == 0:
-    st.caption(f"🎯 **【{cat_large}】** 支出: ¥{selected_spent:,} (※ 予算未設定)")
+    st.caption(f"🎯 **【{cat_large}】({selected_year_month_display})** 支出: ¥{selected_spent:,} (※ 予算未設定)")
 elif selected_remaining < 0:
-    st.caption(f"🎯 **【{cat_large}】** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (⚠️ 超過: ¥{abs(selected_remaining):,} 円)")
+    st.caption(f"🎯 **【{cat_large}】({selected_year_month_display})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (⚠️ 超過: ¥{abs(selected_remaining):,} 円)")
 else:
-    st.caption(f"🎯 **【{cat_large}】** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (残り: ¥{selected_remaining:,} 円)")
+    st.caption(f"🎯 **【{cat_large}】({selected_year_month_display})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (残り: ¥{selected_remaining:,} 円)")
 
 st.progress(selected_percent)
 
@@ -224,7 +226,7 @@ st.caption("💵 金額を入力")
 current_amount = int(st.session_state["amount_str"])
 st.markdown(f'<div class="amount-display">¥ {current_amount:,}</div>', unsafe_allow_html=True)
 
-# 完全分離型のHTML+CSSテンキー（PC・スマホ双方で完全に独立・崩れない設計）
+# テンキー
 st.markdown("""
 <div class="keypad-container">
     <div class="keypad-btn" onclick="window.location.search='?action=num_7'">7</div>
@@ -270,9 +272,30 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
 
 st.divider()
 
-# --- 4. 【下段】全カテゴリの「予算 vs 実績」まとめ表示 ---
-st.subheader(f"📊 全カテゴリ今月 ({now.strftime('%Y年%m月')}) の予算状況")
+# --- 4. 【下段】全カテゴリの「予算 vs 実績」まとめ表示（支払い日の対象月で集計） ---
+st.subheader(f"📊 全カテゴリ {selected_year_month_display} の予算状況")
 
+# 対象月の全体の合計予算・合計支出を集計
+total_budget = sum(BUDGET_MAP.values())
+if not df_month.empty and "金額" in df_month.columns:
+    total_spent = df_month["金額"].sum()
+else:
+    total_spent = 0
+
+total_remaining = total_budget - total_spent
+total_percent = min(total_spent / total_budget, 1.0) if total_budget > 0 else 0.0
+
+# 💰 月間全体サマリー表示
+st.markdown("**🏆 月間全体サマリー**")
+if total_remaining < 0:
+    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{total_spent:,}** (⚠️ 全体超過: **¥{abs(total_remaining):,}** 円)")
+else:
+    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{total_spent:,}** (全体の残り: **¥{total_remaining:,}** 円)")
+
+st.progress(total_percent)
+st.markdown("---")
+
+# 各カテゴリ別の内訳一覧
 for cat, budget in BUDGET_MAP.items():
     if not df_month.empty and "カテゴリ大" in df_month.columns:
         spent = df_month[df_month["カテゴリ大"] == cat]["金額"].sum()
