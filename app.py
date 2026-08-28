@@ -39,7 +39,7 @@ if not os.path.exists(EXCEL_FILE):
     )
     df_init.to_excel(EXCEL_FILE, index=False)
 
-# 全体デザイン・高コントラストCSS（履歴欄の文字視認性を強化）
+# 全体デザイン・高コントラストCSS
 st.markdown("""
 <style>
     .stApp {
@@ -94,7 +94,7 @@ st.markdown("""
         height: 3.4rem !important;
     }
 
-    /* 履歴欄（st.expander）の文字視認性向上 */
+    /* 履歴欄（st.expander）の文字視認性 */
     details {
         background-color: #161B22 !important;
         border: 1px solid #30363D !important;
@@ -118,8 +118,8 @@ st.markdown("""
 
 st.title("💳 家計簿")
 
-# 全データの読み込み
-df_all = pd.read_excel(EXCEL_FILE)
+# 全データの読み込み（型を文字列化して安全に読み込み）
+df_all = pd.read_excel(EXCEL_FILE, dtype={"支払い日": str, "入力日": str})
 
 # セッション状態の初期化
 if "amount_str" not in st.session_state:
@@ -258,17 +258,18 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
     current_amount = int(st.session_state["amount_str"])
     if current_amount > 0:
         entry_date = datetime.now().strftime("%Y-%m-%d")
+        pay_date_str = pay_date.strftime("%Y-%m-%d")
         
         new_data = pd.DataFrame(
-            [[pay_date, entry_date, cat_large, cat_medium, cat_small, current_amount, memo]],
+            [[pay_date_str, entry_date, cat_large, cat_medium, cat_small, current_amount, memo]],
             columns=["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"],
         )
         
-        existing_df = pd.read_excel(EXCEL_FILE)
+        existing_df = pd.read_excel(EXCEL_FILE, dtype=str)
         updated_df = pd.concat([existing_df, new_data], ignore_index=True)
         updated_df.to_excel(EXCEL_FILE, index=False)
         
-        st.success(f"保存完了：[{pay_date}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
+        st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
         st.session_state["amount_str"] = "0"
         st.rerun()
     else:
@@ -281,7 +282,7 @@ st.subheader(f"📊 全カテゴリ（{target_period_label}）の予算状況")
 
 total_budget = sum(BUDGET_MAP.values())
 if not df_month.empty and "金額" in df_month.columns:
-    total_spent = df_month["金額"].sum()
+    total_spent = pd.to_numeric(df_month["金額"], errors="coerce").sum()
 else:
     total_spent = 0
 
@@ -290,16 +291,16 @@ total_percent = min(total_spent / total_budget, 1.0) if total_budget > 0 else 0.
 
 st.markdown("**🏆 期間全体サマリー**")
 if total_remaining < 0:
-    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{total_spent:,}** (⚠️ 全体超過: **¥{abs(total_remaining):,}** 円)")
+    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{int(total_spent):,}** (⚠️ 全体超過: **¥{abs(int(total_remaining)):,}** 円)")
 else:
-    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{total_spent:,}** (全体の残り: **¥{total_remaining:,}** 円)")
+    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{int(total_spent):,}** (全体の残り: **¥{int(total_remaining):,}** 円)")
 
 st.progress(total_percent)
 st.markdown("---")
 
 for cat, budget in BUDGET_MAP.items():
     if not df_month.empty and "カテゴリ大" in df_month.columns:
-        spent = df_month[df_month["カテゴリ大"] == cat]["金額"].sum()
+        spent = pd.to_numeric(df_month[df_month["カテゴリ大"] == cat]["金額"], errors="coerce").sum()
     else:
         spent = 0
         
@@ -311,15 +312,15 @@ for cat, budget in BUDGET_MAP.items():
         st.write(f"**{cat}**")
     with col_metric:
         if budget == 0:
-            st.caption(f"支出: ¥{spent:,} (※ 予算未設定)")
+            st.caption(f"支出: ¥{int(spent):,} (※ 予算未設定)")
         elif remaining < 0:
-            st.caption(f"予算: ¥{budget:,} / 支出: ¥{spent:,} (⚠️ 超過: ¥{abs(remaining):,} 円)")
+            st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (⚠️ 超過: ¥{abs(int(remaining)):,} 円)")
         else:
-            st.caption(f"予算: ¥{budget:,} / 支出: ¥{spent:,} (残り: ¥{remaining:,} 円)")
+            st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (残り: ¥{int(remaining):,} 円)")
     
     st.progress(percent)
 
-# --- 5. 履歴（文字高視認性カスタマイズ適用） ---
+# --- 5. 履歴（安全な型変換処理を適用） ---
 st.divider()
 st.subheader("📜 履歴（直近5件）")
 
@@ -331,16 +332,35 @@ if os.path.exists(EXCEL_FILE):
         for idx in recent_indices:
             row = df_current.loc[idx]
             
-            with st.expander(f"【{row['支払い日']}】{row['カテゴリ大']} ➔ {row['カテゴリ中']} : ¥{row['金額']:,}"):
+            # 日付文字列を safe に date オブジェクトに変換
+            raw_pay_date = row["支払い日"]
+            try:
+                parsed_date = pd.to_datetime(raw_pay_date).date()
+            except Exception:
+                parsed_date = datetime.now().date()
+
+            # 金額を safe に int 変換
+            try:
+                display_amt = int(row["金額"])
+            except Exception:
+                display_amt = 0
+            
+            with st.expander(f"【{parsed_date.strftime('%Y-%m-%d')}】{row['カテゴリ大']} ➔ {row['カテゴリ中']} : ¥{display_amt:,}"):
                 
                 if st.session_state["edit_index"] == idx:
-                    edit_pay_date = st.date_input("支払い日", pd.to_datetime(row["支払い日"]).date(), key=f"edit_date_{idx}")
-                    edit_cat_l = st.selectbox("カテゴリ大", list(CATEGORY_MAP.keys()), index=list(CATEGORY_MAP.keys()).index(row["カテゴリ大"]) if row["カテゴリ大"] in CATEGORY_MAP else 0, key=f"edit_cat_l_{idx}")
+                    edit_pay_date = st.date_input("支払い日", parsed_date, key=f"edit_date_{idx}")
+                    
+                    cur_cat_l = str(row["カテゴリ大"]) if pd.notna(row["カテゴリ大"]) else list(CATEGORY_MAP.keys())[0]
+                    cat_l_idx = list(CATEGORY_MAP.keys()).index(cur_cat_l) if cur_cat_l in CATEGORY_MAP else 0
+                    edit_cat_l = st.selectbox("カテゴリ大", list(CATEGORY_MAP.keys()), index=cat_l_idx, key=f"edit_cat_l_{idx}")
                     
                     sub_cats = CATEGORY_MAP.get(edit_cat_l, [])
-                    edit_cat_m = st.selectbox("カテゴリ中", sub_cats, index=sub_cats.index(row["カテゴリ中"]) if row["カテゴリ中"] in sub_cats else 0, key=f"edit_cat_m_{idx}")
+                    cur_cat_m = str(row["カテゴリ中"]) if pd.notna(row["カテゴリ中"]) else (sub_cats[0] if sub_cats else "")
+                    cat_m_idx = sub_cats.index(cur_cat_m) if cur_cat_m in sub_cats else 0
+                    edit_cat_m = st.selectbox("カテゴリ中", sub_cats, index=cat_m_idx, key=f"edit_cat_m_{idx}")
+                    
                     edit_cat_s = st.text_input("カテゴリ小", str(row["カテゴリ小"]) if pd.notna(row["カテゴリ小"]) else "", key=f"edit_cat_s_{idx}")
-                    edit_amount = st.number_input("金額", value=int(row["金額"]), step=100, key=f"edit_amt_{idx}")
+                    edit_amount = st.number_input("金額", value=display_amt, step=100, key=f"edit_amt_{idx}")
                     edit_memo = st.text_input("メモ", str(row["メモ"]) if pd.notna(row["メモ"]) else "", key=f"edit_memo_{idx}")
                     
                     c1, c2 = st.columns(2)
@@ -350,8 +370,12 @@ if os.path.exists(EXCEL_FILE):
                             df_current.loc[idx, "カテゴリ大"] = edit_cat_l
                             df_current.loc[idx, "カテゴリ中"] = edit_cat_m
                             df_current.loc[idx, "カテゴリ小"] = edit_cat_s
-                            df_current.loc[idx, "金額"] = edit_amount
+                            df_current.loc[idx, "金額"] = int(edit_amount)
                             df_current.loc[idx, "メモ"] = edit_memo
+                            
+                            if "支払い日_dt" in df_current.columns:
+                                df_current = df_current.drop(columns=["支払い日_dt"])
+                                
                             df_current.to_excel(EXCEL_FILE, index=False)
                             st.session_state["edit_index"] = None
                             st.success("更新しました！")
@@ -374,8 +398,11 @@ if os.path.exists(EXCEL_FILE):
                     with c2:
                         if st.button("🗑️ 削除する", key=f"del_btn_{idx}"):
                             df_current = df_current.drop(idx)
+                            if "支払い日_dt" in df_current.columns:
+                                df_current = df_current.drop(columns=["支払い日_dt"])
                             df_current.to_excel(EXCEL_FILE, index=False)
                             st.success("削除しました！")
                             st.rerun()
 
-        st.caption(f"現在の全期間合計支出: {df_current['金額'].sum():,} 円")
+        total_sum = pd.to_numeric(df_current['金額'], errors='coerce').sum()
+        st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
