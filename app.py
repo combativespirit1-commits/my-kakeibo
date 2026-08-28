@@ -85,8 +85,8 @@ st.title("💳 家計簿")
 df_all = pd.read_excel(EXCEL_FILE)
 
 # セッション状態の初期化
-if "amount" not in st.session_state:
-    st.session_state["amount"] = 0
+if "amount_str" not in st.session_state:
+    st.session_state["amount_str"] = "0"
 
 # --- 1. 日付 & カテゴリ設定 ---
 pay_date = st.date_input("🗓️ 支払い日", datetime.now())
@@ -107,8 +107,8 @@ else:
         target_period_label = f"12月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
     else:
         start_date = date(pay_date.year, pay_date.month - 1, 16)
-        end_date = date(pay_date.year, pay_date.month, 15)
-        target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
+        end_date = date(pay_date.year, pay_date.month - 1 + 1, 15)
+    target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 
 # 期間によるフィルタリング
 if not df_all.empty and "支払い日" in df_all.columns:
@@ -154,43 +154,74 @@ cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細�
 
 st.markdown("---")
 
-# --- 2. 確実に動く金額入力セクション ---
+# --- 2. テンキー & 直接入力 セクション ---
 st.caption("💵 金額を入力")
 
-# キーボードで直接入力できるフォーム
-amount_input = st.number_input(
-    "金額（直接入力可能）",
+# キーボードで直接入力もできる入力欄
+input_val = st.number_input(
+    "直接入力用",
     min_value=0,
-    step=100,
-    value=st.session_state["amount"],
-    key="amount_field"
+    value=int(st.session_state["amount_str"]),
+    step=1,
+    label_visibility="collapsed"
 )
-st.session_state["amount"] = amount_input
 
-# テンキー代わりの操作ボタン
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    if st.button("+100"):
-        st.session_state["amount"] += 100
+# 直接入力があった場合の同期
+if input_val != int(st.session_state["amount_str"]):
+    st.session_state["amount_str"] = str(input_val)
+
+# テンキー操作用ヘルパー関数
+def press_num(num_str):
+    if st.session_state["amount_str"] == "0":
+        st.session_state["amount_str"] = num_str
+    elif len(st.session_state["amount_str"]) < 9:
+        st.session_state["amount_str"] += num_str
+
+def press_add(val):
+    cur = int(st.session_state["amount_str"])
+    st.session_state["amount_str"] = str(cur + val)
+
+# テンキーグリッドレイアウト
+k1, k2, k3, k4 = st.columns(4)
+with k1:
+    if st.button("7", use_container_width=True): press_num("7"); st.rerun()
+    if st.button("4", use_container_width=True): press_num("4"); st.rerun()
+    if st.button("1", use_container_width=True): press_num("1"); st.rerun()
+    if st.button("0", use_container_width=True): press_num("0"); st.rerun()
+
+with k2:
+    if st.button("8", use_container_width=True): press_num("8"); st.rerun()
+    if st.button("5", use_container_width=True): press_num("5"); st.rerun()
+    if st.button("2", use_container_width=True): press_num("2"); st.rerun()
+    if st.button("00", use_container_width=True):
+        if st.session_state["amount_str"] != "0" and len(st.session_state["amount_str"]) <= 7:
+            st.session_state["amount_str"] += "00"
+            st.rerun()
+
+with k3:
+    if st.button("9", use_container_width=True): press_num("9"); st.rerun()
+    if st.button("6", use_container_width=True): press_num("6"); st.rerun()
+    if st.button("3", use_container_width=True): press_num("3"); st.rerun()
+    if st.button("⌫", use_container_width=True):
+        if len(st.session_state["amount_str"]) > 1:
+            st.session_state["amount_str"] = st.session_state["amount_str"][:-1]
+        else:
+            st.session_state["amount_str"] = "0"
         st.rerun()
-with col2:
-    if st.button("+500"):
-        st.session_state["amount"] += 500
+
+with k4:
+    if st.button("C", use_container_width=True):
+        st.session_state["amount_str"] = "0"
         st.rerun()
-with col3:
-    if st.button("+1,000"):
-        st.session_state["amount"] += 1000
-        st.rerun()
-with col4:
-    if st.button("クリア", type="secondary"):
-        st.session_state["amount"] = 0
-        st.rerun()
+    if st.button("+100", use_container_width=True): press_add(100); st.rerun()
+    if st.button("+500", use_container_width=True): press_add(500); st.rerun()
+    if st.button("+1k", use_container_width=True): press_add(1000); st.rerun()
 
 # --- 3. メモ & 登録ボタン ---
 memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
 
 if st.button("💾 記録する", type="primary", use_container_width=True):
-    current_amount = st.session_state["amount"]
+    current_amount = int(st.session_state["amount_str"])
     if current_amount > 0:
         entry_date = datetime.now().strftime("%Y-%m-%d")
         
@@ -204,7 +235,7 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
         updated_df.to_excel(EXCEL_FILE, index=False)
         
         st.success(f"保存完了：[{pay_date}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
-        st.session_state["amount"] = 0
+        st.session_state["amount_str"] = "0"
         st.rerun()
     else:
         st.warning("金額を入力してください。")
