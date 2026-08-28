@@ -41,7 +41,6 @@ def load_data():
         return df_init
     
     df = pd.read_excel(EXCEL_FILE, dtype=str)
-    # 不足している列があれば作成
     for col in BASE_COLUMNS:
         if col not in df.columns:
             df[col] = ""
@@ -279,7 +278,7 @@ for cat, budget in BUDGET_MAP.items():
     
     st.progress(percent)
 
-# --- 5. 履歴（エラー抑止・編集） ---
+# --- 5. 履歴 & エクスポート ---
 st.divider()
 st.subheader("📜 履歴（直近5件）")
 
@@ -291,14 +290,12 @@ if os.path.exists(EXCEL_FILE):
         for idx in recent_indices:
             row = df_current.loc[idx]
             
-            # 日付解析の徹底防護
             raw_date_str = str(row["支払い日"]).split()[0]
             try:
                 parsed_date = datetime.strptime(raw_date_str, "%Y-%m-%d").date()
             except Exception:
                 parsed_date = datetime.now().date()
 
-            # 金額解析の徹底防護
             try:
                 display_amt = int(float(row["金額"]))
             except Exception:
@@ -311,7 +308,6 @@ if os.path.exists(EXCEL_FILE):
             with st.expander(f"【{pay_str}】{cat_l_str} ➔ {cat_m_str} : ¥{display_amt:,}"):
                 
                 if st.session_state["edit_index"] == idx:
-                    # Formで囲うことで途中の型クラッシュを完全に遮断
                     with st.form(key=f"edit_form_{idx}"):
                         edit_pay_date = st.date_input("支払い日", parsed_date)
                         
@@ -370,3 +366,14 @@ if os.path.exists(EXCEL_FILE):
 
         total_sum = pd.to_numeric(df_current['金額'], errors='coerce').fillna(0).sum()
         st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
+
+    # 📥 Excelダウンロードボタンの配置
+    st.markdown("---")
+    with open(EXCEL_FILE, "rb") as f:
+        st.download_button(
+            label="📥 家計簿データをExcelでダウンロード",
+            data=f,
+            file_name="kakeibo_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
