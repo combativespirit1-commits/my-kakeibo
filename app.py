@@ -39,7 +39,7 @@ if not os.path.exists(EXCEL_FILE):
     )
     df_init.to_excel(EXCEL_FILE, index=False)
 
-# 全体デザイン＆テンキー安全スタイリング
+# 全体デザイン＆スタイリング
 st.markdown("""
 <style>
     .stApp {
@@ -68,58 +68,6 @@ st.markdown("""
         background-color: #161B22 !important;
         border-color: #30363D !important;
     }
-    .amount-display {
-        background: linear-gradient(135deg, #161B22 0%, #0D1117 100%);
-        border: 1.5px solid #58A6FF;
-        box-shadow: 0px 0px 8px rgba(88, 166, 255, 0.2);
-        border-radius: 10px;
-        padding: 8px 12px;
-        text-align: right;
-        font-size: 1.8rem;
-        font-weight: 800;
-        color: #58A6FF !important;
-        letter-spacing: 1px;
-        margin-bottom: 10px;
-    }
-
-    /* テンキー専用コンテナ設定 */
-    .keypad-container {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 6px;
-        width: 100%;
-        max-width: 400px;
-        margin: 0 auto 15px auto;
-    }
-    
-    /* テンキーボタンCSS */
-    .keypad-btn {
-        width: 100%;
-        height: 48px;
-        font-size: 1rem;
-        font-weight: bold;
-        color: #FFFFFF;
-        background-color: #21262D;
-        border: 1px solid #454C54;
-        border-radius: 8px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        user-select: none;
-        -webkit-tap-highlight-color: transparent;
-    }
-    .keypad-btn:active {
-        background-color: #30363D;
-        border-color: #58A6FF;
-        color: #58A6FF;
-    }
-    .keypad-btn-clear {
-        background-color: #361f22;
-        border-color: #6e2c31;
-        color: #ff7b72;
-    }
-    
     button[kind="primary"] {
         background: linear-gradient(135deg, #1F6FEB 0%, #238636 100%) !important;
         color: #FFFFFF !important;
@@ -137,43 +85,14 @@ st.title("💳 家計簿")
 df_all = pd.read_excel(EXCEL_FILE)
 
 # セッション状態の初期化
-if "amount_str" not in st.session_state:
-    st.session_state["amount_str"] = "0"
-
-# テンキー操作用クエリパラメータ処理
-query_params = st.query_params
-if "action" in query_params:
-    action = query_params["action"]
-    st.query_params.clear()
-    
-    if action.startswith("num_"):
-        num = action.replace("num_", "")
-        if st.session_state["amount_str"] == "0":
-            st.session_state["amount_str"] = num
-        elif len(st.session_state["amount_str"]) < 9:
-            st.session_state["amount_str"] += num
-    elif action == "00":
-        if st.session_state["amount_str"] != "0" and len(st.session_state["amount_str"]) <= 7:
-            st.session_state["amount_str"] += "00"
-    elif action == "clear":
-        st.session_state["amount_str"] = "0"
-    elif action == "back":
-        if len(st.session_state["amount_str"]) > 1:
-            st.session_state["amount_str"] = st.session_state["amount_str"][:-1]
-        else:
-            st.session_state["amount_str"] = "0"
-    elif action.startswith("add_"):
-        add_val = int(action.replace("add_", ""))
-        cur = int(st.session_state["amount_str"])
-        st.session_state["amount_str"] = str(cur + add_val)
-    st.rerun()
+if "amount" not in st.session_state:
+    st.session_state["amount"] = 0
 
 # --- 1. 日付 & カテゴリ設定 ---
 pay_date = st.date_input("🗓️ 支払い日", datetime.now())
 
-# 15日締め集計ロジック（毎月16日〜翌月15日）
+# 15日締めロジック
 if pay_date.day >= 16:
-    # 16日以降：当月16日〜翌月15日（例: 8/16〜9/15 ➔ 8月分）
     if pay_date.month == 12:
         start_date = date(pay_date.year, 12, 16)
         end_date = date(pay_date.year + 1, 1, 15)
@@ -182,7 +101,6 @@ if pay_date.day >= 16:
         end_date = date(pay_date.year, pay_date.month + 1, 15)
     target_period_label = f"{pay_date.month}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 else:
-    # 15日以前：前月16日〜当月15日（例: 8/1〜8/15 ➔ 7月分）
     if pay_date.month == 1:
         start_date = date(pay_date.year - 1, 12, 16)
         end_date = date(pay_date.year, 1, 15)
@@ -192,7 +110,7 @@ else:
         end_date = date(pay_date.year, pay_date.month, 15)
         target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 
-# 期間によるデータ抽出
+# 期間によるフィルタリング
 if not df_all.empty and "支払い日" in df_all.columns:
     df_all["支払い日_dt"] = pd.to_datetime(df_all["支払い日"], errors="coerce").dt.date
     df_month = df_all[(df_all["支払い日_dt"] >= start_date) & (df_all["支払い日_dt"] <= end_date)]
@@ -207,7 +125,6 @@ cat_large = st.radio(
     horizontal=True
 )
 
-# 選択中のカテゴリ大の「予算 vs 実績」表示
 selected_budget = BUDGET_MAP.get(cat_large, 0)
 if not df_month.empty and "カテゴリ大" in df_month.columns:
     selected_spent = df_month[df_month["カテゴリ大"] == cat_large]["金額"].sum()
@@ -226,7 +143,6 @@ else:
 
 st.progress(selected_percent)
 
-# カテゴリ中の選択
 sub_categories = CATEGORY_MAP.get(cat_large, [])
 cat_medium = st.radio(
     "カテゴリ中",
@@ -238,38 +154,43 @@ cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細�
 
 st.markdown("---")
 
-# --- 2. 電卓風 金額入力セクション ---
+# --- 2. 確実に動く金額入力セクション ---
 st.caption("💵 金額を入力")
 
-current_amount = int(st.session_state["amount_str"])
-st.markdown(f'<div class="amount-display">¥ {current_amount:,}</div>', unsafe_allow_html=True)
+# キーボードで直接入力できるフォーム
+amount_input = st.number_input(
+    "金額（直接入力可能）",
+    min_value=0,
+    step=100,
+    value=st.session_state["amount"],
+    key="amount_field"
+)
+st.session_state["amount"] = amount_input
 
-# テンキー
-st.markdown("""
-<div class="keypad-container">
-    <div class="keypad-btn" onclick="window.location.search='?action=num_7'">7</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_8'">8</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_9'">9</div>
-    <div class="keypad-btn keypad-btn-clear" onclick="window.location.search='?action=clear'">C</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_4'">4</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_5'">5</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_6'">6</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=add_100'">+100</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_1'">1</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_2'">2</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_3'">3</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=add_500'">+500</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=num_0'">0</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=00'">00</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=back'">⌫</div>
-    <div class="keypad-btn" onclick="window.location.search='?action=add_1000'">+1k</div>
-</div>
-""", unsafe_allow_html=True)
+# テンキー代わりの操作ボタン
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    if st.button("+100"):
+        st.session_state["amount"] += 100
+        st.rerun()
+with col2:
+    if st.button("+500"):
+        st.session_state["amount"] += 500
+        st.rerun()
+with col3:
+    if st.button("+1,000"):
+        st.session_state["amount"] += 1000
+        st.rerun()
+with col4:
+    if st.button("クリア", type="secondary"):
+        st.session_state["amount"] = 0
+        st.rerun()
 
 # --- 3. メモ & 登録ボタン ---
 memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
 
 if st.button("💾 記録する", type="primary", use_container_width=True):
+    current_amount = st.session_state["amount"]
     if current_amount > 0:
         entry_date = datetime.now().strftime("%Y-%m-%d")
         
@@ -283,17 +204,16 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
         updated_df.to_excel(EXCEL_FILE, index=False)
         
         st.success(f"保存完了：[{pay_date}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
-        st.session_state["amount_str"] = "0"
+        st.session_state["amount"] = 0
         st.rerun()
     else:
         st.warning("金額を入力してください。")
 
 st.divider()
 
-# --- 4. 【下段】全カテゴリの「予算 vs 実績」まとめ表示 ---
+# --- 4. 全カテゴリの「予算 vs 実績」まとめ表示 ---
 st.subheader(f"📊 全カテゴリ（{target_period_label}）の予算状況")
 
-# 対象期間の全体の合計予算・合計支出を集計
 total_budget = sum(BUDGET_MAP.values())
 if not df_month.empty and "金額" in df_month.columns:
     total_spent = df_month["金額"].sum()
@@ -303,7 +223,6 @@ else:
 total_remaining = total_budget - total_spent
 total_percent = min(total_spent / total_budget, 1.0) if total_budget > 0 else 0.0
 
-# 💰 期間全体サマリー表示
 st.markdown("**🏆 期間全体サマリー**")
 if total_remaining < 0:
     st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{total_spent:,}** (⚠️ 全体超過: **¥{abs(total_remaining):,}** 円)")
@@ -313,7 +232,6 @@ else:
 st.progress(total_percent)
 st.markdown("---")
 
-# カテゴリ別の内訳一覧
 for cat, budget in BUDGET_MAP.items():
     if not df_month.empty and "カテゴリ大" in df_month.columns:
         spent = df_month[df_month["カテゴリ大"] == cat]["金額"].sum()
