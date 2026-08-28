@@ -69,7 +69,7 @@ st.markdown("""
         border-color: #30363D !important;
     }
 
-    /* テンキーボタンの高視認性CSSカスタマイズ */
+    /* テンキーボタンCSS */
     div[data-testid="stColumn"] button {
         background-color: #30363D !important;
         color: #FFFFFF !important;
@@ -104,6 +104,8 @@ df_all = pd.read_excel(EXCEL_FILE)
 # セッション状態の初期化
 if "amount_str" not in st.session_state:
     st.session_state["amount_str"] = "0"
+if "edit_index" not in st.session_state:
+    st.session_state["edit_index"] = None
 
 # --- 1. 日付 & カテゴリ設定 ---
 pay_date = st.date_input("🗓️ 支払い日", datetime.now())
@@ -171,10 +173,9 @@ cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細�
 
 st.markdown("---")
 
-# --- 2. 高視認性テンキー & 直接入力 セクション ---
+# --- 2. テンキー & 直接入力 セクション ---
 st.caption("💵 金額を入力")
 
-# キーボード入力欄
 input_val = st.number_input(
     "金額（手入力・テンキー連動）",
     min_value=0,
@@ -185,7 +186,6 @@ input_val = st.number_input(
 if input_val != int(st.session_state["amount_str"]):
     st.session_state["amount_str"] = str(input_val)
 
-# テンキー操作ヘルパー関数
 def press_num(num_str):
     if st.session_state["amount_str"] == "0":
         st.session_state["amount_str"] = num_str
@@ -196,7 +196,6 @@ def press_add(val):
     cur = int(st.session_state["amount_str"])
     st.session_state["amount_str"] = str(cur + val)
 
-# テンキー配置
 k1, k2, k3, k4 = st.columns(4)
 with k1:
     if st.button("7", use_container_width=True): press_num("7"); st.rerun()
@@ -300,12 +299,65 @@ for cat, budget in BUDGET_MAP.items():
     
     st.progress(percent)
 
-# --- 5. 履歴（直近5件） ---
+# --- 5. 履歴（編集・削除機能つき） ---
 st.divider()
 st.subheader("📜 履歴（直近5件）")
+
 if os.path.exists(EXCEL_FILE):
     df_current = pd.read_excel(EXCEL_FILE)
     if not df_current.empty:
-        show_cols = [c for c in df_current.columns if c != "支払い日_dt"]
-        st.dataframe(df_current[show_cols].tail(5), use_container_width=True)
+        # 直近5件を取得（インデックス保持）
+        recent_indices = df_current.tail(5).index[::-1]
+        
+        for idx in recent_indices:
+            row = df_current.loc[idx]
+            
+            # データ表示用コンテナ
+            with st.expander(f"【{row['支払い日']}】{row['カテゴリ大']} ➔ {row['カテゴリ中']} : ¥{row['金額']:,}"):
+                
+                # 編集モードの場合
+                if st.session_state["edit_index"] == idx:
+                    edit_pay_date = st.date_input("支払い日", pd.to_datetime(row["支払い日"]).date(), key=f"edit_date_{idx}")
+                    edit_cat_l = st.selectbox("カテゴリ大", list(CATEGORY_MAP.keys()), index=list(CATEGORY_MAP.keys()).index(row["カテゴリ大"]) if row["カテゴリ大"] in CATEGORY_MAP else 0, key=f"edit_cat_l_{idx}")
+                    
+                    sub_cats = CATEGORY_MAP.get(edit_cat_l, [])
+                    edit_cat_m = st.selectbox("カテゴリ中", sub_cats, index=sub_cats.index(row["カテゴリ中"]) if row["カテゴリ中"] in sub_cats else 0, key=f"edit_cat_m_{idx}")
+                    edit_cat_s = st.text_input("カテゴリ小", str(row["カテゴリ小"]) if pd.notna(row["カテゴリ小"]) else "", key=f"edit_cat_s_{idx}")
+                    edit_amount = st.number_input("金額", value=int(row["金額"]), step=100, key=f"edit_amt_{idx}")
+                    edit_memo = st.text_input("メモ", str(row["メモ"]) if pd.notna(row["メモ"]) else "", key=f"edit_memo_{idx}")
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("💾 更新", key=f"save_{idx}"):
+                            df_current.loc[idx, "支払い日"] = edit_pay_date.strftime("%Y-%m-%d")
+                            df_current.loc[idx, "カテゴリ大"] = edit_cat_l
+                            df_current.loc[idx, "カテゴリ中"] = edit_cat_m
+                            df_current.loc[idx, "カテゴリ小"] = edit_cat_s
+                            df_current.loc[idx, "金額"] = edit_amount
+                            df_current.loc[idx, "メモ"] = edit_memo
+                            df_current.to_excel(EXCEL_FILE, index=False)
+                            st.session_state["edit_index"] = None
+                            st.success("更新しました！")
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ キャンセル", key=f"cancel_{idx}"):
+                            st.session_state["edit_index"] = None
+                            st.rerun()
+                
+                # 通常表示モードの場合
+                else:
+                    st.write(f"**詳細:** {row['カテゴリ小'] if pd.notna(row['カテゴリ小']) else 'なし'} | **メモ:** {row['メモ'] if pd.notna(row['メモ']) else 'なし'}")
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✏️ 編集する", key=f"edit_btn_{idx}"):
+                            st.session_state["edit_index"] = idx
+                            st.rerun()
+                    with c2:
+                        if st.button("🗑️ 削除する", key=f"del_btn_{idx}"):
+                            df_current = df_current.drop(idx)
+                            df_current.to_excel(EXCEL_FILE, index=False)
+                            st.success("削除しました！")
+                            st.rerun()
+
         st.caption(f"現在の全期間合計支出: {df_current['金額'].sum():,} 円")
