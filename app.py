@@ -78,6 +78,23 @@ st.markdown("""
         height: 3.4rem !important;
     }
 
+    /* ダウンロードボタンの文字可視化 */
+    div[data-testid="stDownloadButton"] button {
+        background-color: #21262D !important;
+        border: 1px solid #8B949E !important;
+        border-radius: 8px !important;
+    }
+    div[data-testid="stDownloadButton"] button p, 
+    div[data-testid="stDownloadButton"] button span {
+        color: #FFFFFF !important;
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+    }
+    div[data-testid="stDownloadButton"] button:hover {
+        background-color: #30363D !important;
+        border-color: #58A6FF !important;
+    }
+
     /* 履歴欄視認性 */
     details { background-color: #161B22 !important; border: 1px solid #30363D !important; border-radius: 8px !important; margin-bottom: 8px !important; }
     summary { color: #FFFFFF !important; font-weight: 700 !important; font-size: 1.05rem !important; }
@@ -367,7 +384,7 @@ if os.path.exists(EXCEL_FILE):
         total_sum = pd.to_numeric(df_current['金額'], errors='coerce').fillna(0).sum()
         st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
 
-    # 📥 Excelダウンロードボタンの配置
+    # 📥 Excelダウンロードボタン（高コントラスト文字対応）
     st.markdown("---")
     with open(EXCEL_FILE, "rb") as f:
         st.download_button(
