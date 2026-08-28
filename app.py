@@ -39,7 +39,7 @@ if not os.path.exists(EXCEL_FILE):
     )
     df_init.to_excel(EXCEL_FILE, index=False)
 
-# 全体デザイン＆スタイリング
+# 高コントラスト＆高視認性テンキーデザイン
 st.markdown("""
 <style>
     .stApp {
@@ -68,13 +68,30 @@ st.markdown("""
         background-color: #161B22 !important;
         border-color: #30363D !important;
     }
+
+    /* テンキーボタンの高視認性CSSカスタマイズ */
+    div[data-testid="stColumn"] button {
+        background-color: #30363D !important;
+        color: #FFFFFF !important;
+        font-size: 1.3rem !important;
+        font-weight: 800 !important;
+        border: 1px solid #8B949E !important;
+        border-radius: 8px !important;
+        height: 3.2rem !important;
+    }
+    div[data-testid="stColumn"] button:hover {
+        background-color: #484F58 !important;
+        border-color: #58A6FF !important;
+    }
+
+    /* メイン登録ボタン */
     button[kind="primary"] {
         background: linear-gradient(135deg, #1F6FEB 0%, #238636 100%) !important;
         color: #FFFFFF !important;
-        font-size: 1.1rem !important;
+        font-size: 1.2rem !important;
         font-weight: bold !important;
         border: none !important;
-        height: 3.2rem !important;
+        height: 3.4rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -107,8 +124,8 @@ else:
         target_period_label = f"12月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
     else:
         start_date = date(pay_date.year, pay_date.month - 1, 16)
-        end_date = date(pay_date.year, pay_date.month - 1 + 1, 15)
-    target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
+        end_date = date(pay_date.year, pay_date.month, 15)
+        target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 
 # 期間によるフィルタリング
 if not df_all.empty and "支払い日" in df_all.columns:
@@ -154,23 +171,21 @@ cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細�
 
 st.markdown("---")
 
-# --- 2. テンキー & 直接入力 セクション ---
+# --- 2. 高視認性テンキー & 直接入力 セクション ---
 st.caption("💵 金額を入力")
 
-# キーボードで直接入力もできる入力欄
+# キーボード入力欄
 input_val = st.number_input(
-    "直接入力用",
+    "金額（手入力・テンキー連動）",
     min_value=0,
     value=int(st.session_state["amount_str"]),
-    step=1,
-    label_visibility="collapsed"
+    step=1
 )
 
-# 直接入力があった場合の同期
 if input_val != int(st.session_state["amount_str"]):
     st.session_state["amount_str"] = str(input_val)
 
-# テンキー操作用ヘルパー関数
+# テンキー操作ヘルパー関数
 def press_num(num_str):
     if st.session_state["amount_str"] == "0":
         st.session_state["amount_str"] = num_str
@@ -181,7 +196,7 @@ def press_add(val):
     cur = int(st.session_state["amount_str"])
     st.session_state["amount_str"] = str(cur + val)
 
-# テンキーグリッドレイアウト
+# テンキー配置
 k1, k2, k3, k4 = st.columns(4)
 with k1:
     if st.button("7", use_container_width=True): press_num("7"); st.rerun()
