@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, date
 import pandas as pd
 import streamlit as st
 
@@ -13,7 +13,7 @@ st.set_page_config(
 
 EXCEL_FILE = "kakeibo_data.xlsx"
 
-# カテゴリ大ごとの月間予算設定（金額変更適用済み）
+# カテゴリ大ごとの月間予算設定
 BUDGET_MAP = {
     "食費": 40000,
     "外食": 14000,
@@ -171,17 +171,35 @@ if "action" in query_params:
 # --- 1. 日付 & カテゴリ設定 ---
 pay_date = st.date_input("🗓️ 支払い日", datetime.now())
 
-# 選択された「支払い日」の年月を取得
-selected_month_str = pay_date.strftime("%Y-%m")
-selected_year_month_display = pay_date.strftime("%Y年%m月")
+# 15日締め集計ロジック（毎月16日〜翌月15日）
+if pay_date.day >= 16:
+    # 16日以降：当月16日〜翌月15日（例: 8/16〜9/15 ➔ 8月分）
+    if pay_date.month == 12:
+        start_date = date(pay_date.year, 12, 16)
+        end_date = date(pay_date.year + 1, 1, 15)
+    else:
+        start_date = date(pay_date.year, pay_date.month, 16)
+        end_date = date(pay_date.year, pay_date.month + 1, 15)
+    target_period_label = f"{pay_date.month}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
+else:
+    # 15日以前：前月16日〜当月15日（例: 8/1〜8/15 ➔ 7月分）
+    if pay_date.month == 1:
+        start_date = date(pay_date.year - 1, 12, 16)
+        end_date = date(pay_date.year, 1, 15)
+        target_period_label = f"12月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
+    else:
+        start_date = date(pay_date.year, pay_date.month - 1, 16)
+        end_date = date(pay_date.year, pay_date.month, 15)
+        target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 
+# 期間によるデータ抽出
 if not df_all.empty and "支払い日" in df_all.columns:
-    df_all["支払い日_dt"] = pd.to_datetime(df_all["支払い日"], errors="coerce")
-    df_month = df_all[df_all["支払い日_dt"].dt.strftime("%Y-%m") == selected_month_str]
+    df_all["支払い日_dt"] = pd.to_datetime(df_all["支払い日"], errors="coerce").dt.date
+    df_month = df_all[(df_all["支払い日_dt"] >= start_date) & (df_all["支払い日_dt"] <= end_date)]
 else:
     df_month = pd.DataFrame()
 
-st.caption(f"🏷️ カテゴリ選択（対象月: {selected_year_month_display}）")
+st.caption(f"🏷️ カテゴリ選択（対象期間: {target_period_label}）")
 
 cat_large = st.radio(
     "カテゴリ大",
@@ -200,11 +218,11 @@ selected_remaining = selected_budget - selected_spent
 selected_percent = min(selected_spent / selected_budget, 1.0) if selected_budget > 0 else 0.0
 
 if selected_budget == 0:
-    st.caption(f"🎯 **【{cat_large}】({selected_year_month_display})** 支出: ¥{selected_spent:,} (※ 予算未設定)")
+    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 支出: ¥{selected_spent:,} (※ 予算未設定)")
 elif selected_remaining < 0:
-    st.caption(f"🎯 **【{cat_large}】({selected_year_month_display})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (⚠️ 超過: ¥{abs(selected_remaining):,} 円)")
+    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (⚠️ 超過: ¥{abs(selected_remaining):,} 円)")
 else:
-    st.caption(f"🎯 **【{cat_large}】({selected_year_month_display})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (残り: ¥{selected_remaining:,} 円)")
+    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (残り: ¥{selected_remaining:,} 円)")
 
 st.progress(selected_percent)
 
@@ -273,9 +291,9 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
 st.divider()
 
 # --- 4. 【下段】全カテゴリの「予算 vs 実績」まとめ表示 ---
-st.subheader(f"📊 全カテゴリ {selected_year_month_display} の予算状況")
+st.subheader(f"📊 全カテゴリ（{target_period_label}）の予算状況")
 
-# 対象月の全体の合計予算・合計支出を集計
+# 対象期間の全体の合計予算・合計支出を集計
 total_budget = sum(BUDGET_MAP.values())
 if not df_month.empty and "金額" in df_month.columns:
     total_spent = df_month["金額"].sum()
@@ -285,8 +303,8 @@ else:
 total_remaining = total_budget - total_spent
 total_percent = min(total_spent / total_budget, 1.0) if total_budget > 0 else 0.0
 
-# 💰 月間全体サマリー表示
-st.markdown("**🏆 月間全体サマリー**")
+# 💰 期間全体サマリー表示
+st.markdown("**🏆 期間全体サマリー**")
 if total_remaining < 0:
     st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{total_spent:,}** (⚠️ 全体超過: **¥{abs(total_remaining):,}** 円)")
 else:
