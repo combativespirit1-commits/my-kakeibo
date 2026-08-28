@@ -13,7 +13,6 @@ st.set_page_config(
 
 EXCEL_FILE = "kakeibo_data.xlsx"
 
-# カテゴリ大ごとの月間予算設定
 BUDGET_MAP = {
     "食費": 40000,
     "外食": 14000,
@@ -23,7 +22,6 @@ BUDGET_MAP = {
     "医療": 5000
 }
 
-# カテゴリの連動定義（大カテゴリ ➔ 中カテゴリ）
 CATEGORY_MAP = {
     "食費": ["スーパー", "コストコ"],
     "外食": ["外食", "飲み会", "ママ友会"],
@@ -33,43 +31,23 @@ CATEGORY_MAP = {
     "医療": ["病院", "動物病院", "コンタクト"]
 }
 
+BASE_COLUMNS = ["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"]
+
 if not os.path.exists(EXCEL_FILE):
-    df_init = pd.DataFrame(
-        columns=["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"]
-    )
+    df_init = pd.DataFrame(columns=BASE_COLUMNS)
     df_init.to_excel(EXCEL_FILE, index=False)
 
-# 全体デザイン・高コントラストCSS
+# 全体デザインCSS
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #0E1117;
-        color: #FFFFFF !important;
-    }
-    label, p, .stCaption, div[data-testid="stMarkdownContainer"] p {
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
-    }
-    h1 {
-        font-size: 1.6rem !important;
-        font-weight: 800 !important;
-        color: #58A6FF !important;
-        text-align: center;
-        margin-bottom: 0.8rem !important;
-    }
-    .stCaption {
-        color: #8B949E !important;
-    }
-    input {
-        color: #FFFFFF !important;
-        background-color: #161B22 !important;
-    }
-    div[data-baseweb="input"] {
-        background-color: #161B22 !important;
-        border-color: #30363D !important;
-    }
+    .stApp { background-color: #0E1117; color: #FFFFFF !important; }
+    label, p, .stCaption, div[data-testid="stMarkdownContainer"] p { color: #FFFFFF !important; font-weight: 600 !important; }
+    h1 { font-size: 1.6rem !important; font-weight: 800 !important; color: #58A6FF !important; text-align: center; margin-bottom: 0.8rem !important; }
+    .stCaption { color: #8B949E !important; }
+    input { color: #FFFFFF !important; background-color: #161B22 !important; }
+    div[data-baseweb="input"] { background-color: #161B22 !important; border-color: #30363D !important; }
 
-    /* テンキーボタンCSS */
+    /* テンキーボタン */
     div[data-testid="stColumn"] button {
         background-color: #30363D !important;
         color: #FFFFFF !important;
@@ -79,10 +57,7 @@ st.markdown("""
         border-radius: 8px !important;
         height: 3.2rem !important;
     }
-    div[data-testid="stColumn"] button:hover {
-        background-color: #484F58 !important;
-        border-color: #58A6FF !important;
-    }
+    div[data-testid="stColumn"] button:hover { background-color: #484F58 !important; border-color: #58A6FF !important; }
 
     /* メイン登録ボタン */
     button[kind="primary"] {
@@ -94,34 +69,27 @@ st.markdown("""
         height: 3.4rem !important;
     }
 
-    /* 履歴欄（st.expander）の文字視認性 */
-    details {
-        background-color: #161B22 !important;
-        border: 1px solid #30363D !important;
-        border-radius: 8px !important;
-        margin-bottom: 8px !important;
-    }
-    summary {
-        color: #FFFFFF !important;
-        font-weight: 700 !important;
-        font-size: 1.05rem !important;
-    }
-    details div[data-testid="stExpanderDetails"] {
-        background-color: #0D1117 !important;
-        color: #FFFFFF !important;
-    }
-    details div[data-testid="stExpanderDetails"] * {
-        color: #FFFFFF !important;
-    }
+    /* 履歴欄視認性強化 */
+    details { background-color: #161B22 !important; border: 1px solid #30363D !important; border-radius: 8px !important; margin-bottom: 8px !important; }
+    summary { color: #FFFFFF !important; font-weight: 700 !important; font-size: 1.05rem !important; }
+    details div[data-testid="stExpanderDetails"] { background-color: #0D1117 !important; color: #FFFFFF !important; }
+    details div[data-testid="stExpanderDetails"] * { color: #FFFFFF !important; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("💳 家計簿")
 
-# 全データの読み込み（型を文字列化して安全に読み込み）
-df_all = pd.read_excel(EXCEL_FILE, dtype={"支払い日": str, "入力日": str})
+# Excel読み込み関数（ベース列のみを綺麗に取り出す）
+def load_data():
+    if not os.path.exists(EXCEL_FILE):
+        return pd.DataFrame(columns=BASE_COLUMNS)
+    df = pd.read_excel(EXCEL_FILE)
+    # 余分な列（支払い日_dtなど）を排除
+    valid_cols = [c for c in BASE_COLUMNS if c in df.columns]
+    return df[valid_cols]
 
-# セッション状態の初期化
+df_all = load_data()
+
 if "amount_str" not in st.session_state:
     st.session_state["amount_str"] = "0"
 if "edit_index" not in st.session_state:
@@ -130,7 +98,6 @@ if "edit_index" not in st.session_state:
 # --- 1. 日付 & カテゴリ設定 ---
 pay_date = st.date_input("🗓️ 支払い日", datetime.now())
 
-# 15日締めロジック
 if pay_date.day >= 16:
     if pay_date.month == 12:
         start_date = date(pay_date.year, 12, 16)
@@ -149,24 +116,20 @@ else:
         end_date = date(pay_date.year, pay_date.month, 15)
         target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 
-# 期間によるフィルタリング
 if not df_all.empty and "支払い日" in df_all.columns:
-    df_all["支払い日_dt"] = pd.to_datetime(df_all["支払い日"], errors="coerce").dt.date
-    df_month = df_all[(df_all["支払い日_dt"] >= start_date) & (df_all["支払い日_dt"] <= end_date)]
+    df_work = df_all.copy()
+    df_work["_dt"] = pd.to_datetime(df_work["支払い日"], errors="coerce").dt.date
+    df_month = df_work[(df_work["_dt"] >= start_date) & (df_work["_dt"] <= end_date)]
 else:
     df_month = pd.DataFrame()
 
 st.caption(f"🏷️ カテゴリ選択（対象期間: {target_period_label}）")
 
-cat_large = st.radio(
-    "カテゴリ大",
-    list(CATEGORY_MAP.keys()),
-    horizontal=True
-)
+cat_large = st.radio("カテゴリ大", list(CATEGORY_MAP.keys()), horizontal=True)
 
 selected_budget = BUDGET_MAP.get(cat_large, 0)
 if not df_month.empty and "カテゴリ大" in df_month.columns:
-    selected_spent = df_month[df_month["カテゴリ大"] == cat_large]["金額"].sum()
+    selected_spent = pd.to_numeric(df_month[df_month["カテゴリ大"] == cat_large]["金額"], errors="coerce").sum()
 else:
     selected_spent = 0
 
@@ -174,26 +137,21 @@ selected_remaining = selected_budget - selected_spent
 selected_percent = min(selected_spent / selected_budget, 1.0) if selected_budget > 0 else 0.0
 
 if selected_budget == 0:
-    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 支出: ¥{selected_spent:,} (※ 予算未設定)")
+    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 支出: ¥{int(selected_spent):,} (※ 予算未設定)")
 elif selected_remaining < 0:
-    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (⚠️ 超過: ¥{abs(selected_remaining):,} 円)")
+    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{int(selected_spent):,} (⚠️ 超過: ¥{abs(int(selected_remaining)):,} 円)")
 else:
-    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{selected_spent:,} (残り: ¥{selected_remaining:,} 円)")
+    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{int(selected_spent):,} (残り: ¥{int(selected_remaining):,} 円)")
 
 st.progress(selected_percent)
 
 sub_categories = CATEGORY_MAP.get(cat_large, [])
-cat_medium = st.radio(
-    "カテゴリ中",
-    sub_categories,
-    horizontal=True
-)
-
+cat_medium = st.radio("カテゴリ中", sub_categories, horizontal=True)
 cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細な分類やアイテム名など")
 
 st.markdown("---")
 
-# --- 2. テンキー & 直接入力 セクション ---
+# --- 2. テンキー & 直接入力 ---
 st.caption("💵 金額を入力")
 
 input_val = st.number_input(
@@ -262,12 +220,12 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
         
         new_data = pd.DataFrame(
             [[pay_date_str, entry_date, cat_large, cat_medium, cat_small, current_amount, memo]],
-            columns=["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"],
+            columns=BASE_COLUMNS
         )
         
-        existing_df = pd.read_excel(EXCEL_FILE, dtype=str)
+        existing_df = load_data()
         updated_df = pd.concat([existing_df, new_data], ignore_index=True)
-        updated_df.to_excel(EXCEL_FILE, index=False)
+        updated_df[BASE_COLUMNS].to_excel(EXCEL_FILE, index=False)
         
         st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
         st.session_state["amount_str"] = "0"
@@ -277,7 +235,7 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
 
 st.divider()
 
-# --- 4. 全カテゴリの「予算 vs 実績」まとめ表示 ---
+# --- 4. 予算状況サマリー ---
 st.subheader(f"📊 全カテゴリ（{target_period_label}）の予算状況")
 
 total_budget = sum(BUDGET_MAP.values())
@@ -320,43 +278,44 @@ for cat, budget in BUDGET_MAP.items():
     
     st.progress(percent)
 
-# --- 5. 履歴（安全な型変換処理を適用） ---
+# --- 5. 履歴（安全な更新処理） ---
 st.divider()
 st.subheader("📜 履歴（直近5件）")
 
 if os.path.exists(EXCEL_FILE):
-    df_current = pd.read_excel(EXCEL_FILE)
+    df_current = load_data()
     if not df_current.empty:
         recent_indices = df_current.tail(5).index[::-1]
         
         for idx in recent_indices:
             row = df_current.loc[idx]
             
-            # 日付文字列を safe に date オブジェクトに変換
-            raw_pay_date = row["支払い日"]
+            # 日付解析
             try:
-                parsed_date = pd.to_datetime(raw_pay_date).date()
+                parsed_date = pd.to_datetime(str(row["支払い日"])).date()
             except Exception:
                 parsed_date = datetime.now().date()
 
-            # 金額を safe に int 変換
+            # 金額解析
             try:
                 display_amt = int(row["金額"])
             except Exception:
                 display_amt = 0
             
-            with st.expander(f"【{parsed_date.strftime('%Y-%m-%d')}】{row['カテゴリ大']} ➔ {row['カテゴリ中']} : ¥{display_amt:,}"):
+            pay_str = parsed_date.strftime('%Y-%m-%d')
+            cat_l_str = str(row['カテゴリ大']) if pd.notna(row['カテゴリ大']) else ""
+            cat_m_str = str(row['カテゴリ中']) if pd.notna(row['カテゴリ中']) else ""
+            
+            with st.expander(f"【{pay_str}】{cat_l_str} ➔ {cat_m_str} : ¥{display_amt:,}"):
                 
                 if st.session_state["edit_index"] == idx:
                     edit_pay_date = st.date_input("支払い日", parsed_date, key=f"edit_date_{idx}")
                     
-                    cur_cat_l = str(row["カテゴリ大"]) if pd.notna(row["カテゴリ大"]) else list(CATEGORY_MAP.keys())[0]
-                    cat_l_idx = list(CATEGORY_MAP.keys()).index(cur_cat_l) if cur_cat_l in CATEGORY_MAP else 0
+                    cat_l_idx = list(CATEGORY_MAP.keys()).index(cat_l_str) if cat_l_str in CATEGORY_MAP else 0
                     edit_cat_l = st.selectbox("カテゴリ大", list(CATEGORY_MAP.keys()), index=cat_l_idx, key=f"edit_cat_l_{idx}")
                     
                     sub_cats = CATEGORY_MAP.get(edit_cat_l, [])
-                    cur_cat_m = str(row["カテゴリ中"]) if pd.notna(row["カテゴリ中"]) else (sub_cats[0] if sub_cats else "")
-                    cat_m_idx = sub_cats.index(cur_cat_m) if cur_cat_m in sub_cats else 0
+                    cat_m_idx = sub_cats.index(cat_m_str) if cat_m_str in sub_cats else 0
                     edit_cat_m = st.selectbox("カテゴリ中", sub_cats, index=cat_m_idx, key=f"edit_cat_m_{idx}")
                     
                     edit_cat_s = st.text_input("カテゴリ小", str(row["カテゴリ小"]) if pd.notna(row["カテゴリ小"]) else "", key=f"edit_cat_s_{idx}")
@@ -366,6 +325,7 @@ if os.path.exists(EXCEL_FILE):
                     c1, c2 = st.columns(2)
                     with c1:
                         if st.button("💾 更新", key=f"save_{idx}"):
+                            # データの更新
                             df_current.loc[idx, "支払い日"] = edit_pay_date.strftime("%Y-%m-%d")
                             df_current.loc[idx, "カテゴリ大"] = edit_cat_l
                             df_current.loc[idx, "カテゴリ中"] = edit_cat_m
@@ -373,10 +333,10 @@ if os.path.exists(EXCEL_FILE):
                             df_current.loc[idx, "金額"] = int(edit_amount)
                             df_current.loc[idx, "メモ"] = edit_memo
                             
-                            if "支払い日_dt" in df_current.columns:
-                                df_current = df_current.drop(columns=["支払い日_dt"])
-                                
-                            df_current.to_excel(EXCEL_FILE, index=False)
+                            # 必要な7列だけをクリーンに保存
+                            clean_df = df_current[BASE_COLUMNS]
+                            clean_df.to_excel(EXCEL_FILE, index=False)
+                            
                             st.session_state["edit_index"] = None
                             st.success("更新しました！")
                             st.rerun()
@@ -398,9 +358,8 @@ if os.path.exists(EXCEL_FILE):
                     with c2:
                         if st.button("🗑️ 削除する", key=f"del_btn_{idx}"):
                             df_current = df_current.drop(idx)
-                            if "支払い日_dt" in df_current.columns:
-                                df_current = df_current.drop(columns=["支払い日_dt"])
-                            df_current.to_excel(EXCEL_FILE, index=False)
+                            clean_df = df_current[BASE_COLUMNS]
+                            clean_df.to_excel(EXCEL_FILE, index=False)
                             st.success("削除しました！")
                             st.rerun()
 
