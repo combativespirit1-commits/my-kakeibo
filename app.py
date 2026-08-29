@@ -188,9 +188,7 @@ with st.form(key="entry_form", clear_on_submit=True):
     sub_categories = CATEGORY_MAP.get(cat_large, [])
     cat_medium = st.radio("カテゴリ中", sub_categories, horizontal=True)
 
-    # number_inputにより、タップ時にスマホ自体のテンキーキーボードが開きます
     amount_input = st.number_input("💵 金額", min_value=0, value=None, step=1, placeholder="0")
-    
     cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細な分類やアイテム名など")
     memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
 
@@ -228,7 +226,7 @@ st.markdown("**🏆 期間全体サマリー**")
 if total_remaining < 0:
     st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{int(total_spent):,}** (⚠️ 全体超過: **¥{abs(int(total_remaining)):,}** 円)")
 else:
-    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{int(total_remaining):,}** (全体の残り: **¥{int(total_remaining):,}** 円)")
+    st.caption(f"総予算: **¥{total_budget:,}** / 総支出: **¥{int(total_spent):,}** (全体の残り: **¥{int(total_remaining):,}** 円)")
 
 st.progress(total_percent)
 st.markdown("---")
@@ -339,3 +337,35 @@ if not df_all.empty:
 
     total_sum = pd.to_numeric(df_all['金額'], errors='coerce').fillna(0).sum()
     st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
+
+# --- 5. カテゴリ中（細分化）の支出グラフ ---
+st.divider()
+st.subheader(f"📈 カテゴリ別（大 ➔ 中）支出内訳 ({target_period_label})")
+
+if not df_month.empty:
+    # 数値変換と集計
+    df_chart = df_month.copy()
+    df_chart["金額_num"] = pd.to_numeric(df_chart["金額"], errors="coerce").fillna(0)
+    
+    # 大カテゴリと中カテゴリを組み合わせた表示名を作成
+    df_chart["カテゴリ詳細"] = df_chart["カテゴリ大"] + " : " + df_chart["カテゴリ中"]
+    
+    grouped_chart = df_chart.groupby("カテゴリ詳細")["金額_num"].sum().reset_index()
+    grouped_chart = grouped_chart[grouped_chart["金額_num"] > 0] # 支出があるもののみ抽出
+    
+    if not grouped_chart.empty:
+        # 金額順にソート
+        grouped_chart = grouped_chart.sort_values(by="金額_num", ascending=True)
+        
+        # Streamlit標準の横棒グラフ表示
+        st.bar_chart(
+            data=grouped_chart,
+            x="カテゴリ詳細",
+            y="金額_num",
+            horizontal=True,
+            color="#58A6FF"
+        )
+    else:
+        st.info("対象期間の支出データ（1円以上）がまだありません。")
+else:
+    st.info("対象期間のデータがありません。")
