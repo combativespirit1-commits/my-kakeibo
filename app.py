@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Googleスプレッドシート接続設定（Credentials直読み・補正版）
+# 2. Googleスプレッドシート接続設定
 @st.cache_resource
 def get_gspread_client():
     scopes = [
@@ -23,51 +23,21 @@ def get_gspread_client():
     ]
     
     if "gcp_service_account" not in st.secrets:
-        # ローカル環境用
         creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
         return gspread.authorize(creds)
 
     sec = st.secrets["gcp_service_account"]
     
-    # Secrets の形式を辞書(dict)に変換
     if hasattr(sec, "to_dict"):
         creds_dict = sec.to_dict()
     elif isinstance(sec, dict):
         creds_dict = dict(sec)
-    elif isinstance(sec, str):
-        import json
-        try:
-            creds_dict = json.loads(sec)
-        except Exception:
-            cleaned_sec = sec.replace('\n', '\\n').replace('\r', '')
-            creds_dict = json.loads(cleaned_sec)
     else:
         creds_dict = dict(sec)
 
-    # private_key の整形処理
+    # private_key 内の改行補正のみ実施
     if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
-        p_key = creds_dict["private_key"]
-        
-        # 実改行を一旦すべて単一の \n に変換
-        p_key = p_key.replace("\r\n", "\n").replace("\r", "\n")
-        # リテラルの \n も実際の改行に変換
-        p_key = p_key.replace("\\n", "\n")
-        
-        # ヘッダー/フッター以外から英数字と標準的なBase64記号(+, /, =)のみを抽出
-        lines = p_key.split("\n")
-        body_parts = []
-        for line in lines:
-            line_str = line.strip()
-            if line_str and not line_str.startswith("-----"):
-                body_parts.append(line_str)
-        
-        raw_body = "".join(body_parts).replace(" ", "")
-        
-        # 鍵本文を64文字ずつ改行整形してPEM形式を作る
-        formatted_body = "\n".join([raw_body[i:i+64] for i in range(0, len(raw_body), 64)])
-        p_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
-        
-        creds_dict["private_key"] = p_key
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
@@ -122,7 +92,6 @@ BUDGET_MAP = {
     "医療": 5000
 }
 
-# カテゴリ設定
 CATEGORY_MAP = {
     "食費": ["ドンキ", "コープ", "コストコ"],
     "外食": ["外食", "コンビニ", "パン屋", "ママ友会"],
@@ -142,7 +111,6 @@ st.markdown("""
     input { color: #FFFFFF !important; background-color: #161B22 !important; }
     div[data-baseweb="input"] { background-color: #161B22 !important; border-color: #30363D !important; }
 
-    /* スマホ画面でのテンキー縦並び防止＆サイズ最適化 */
     div[data-testid="stHorizontalBlock"]:has(button) {
         display: flex !important;
         flex-direction: row !important;
@@ -155,7 +123,6 @@ st.markdown("""
         flex: 1 1 0% !important;
     }
 
-    /* テンキーボタン */
     div[data-testid="stColumn"] button {
         background-color: #30363D !important;
         color: #FFFFFF !important;
@@ -168,7 +135,6 @@ st.markdown("""
     }
     div[data-testid="stColumn"] button:hover { background-color: #484F58 !important; border-color: #58A6FF !important; }
 
-    /* メイン登録ボタン */
     button[kind="primary"] {
         background: linear-gradient(135deg, #1F6FEB 0%, #238636 100%) !important;
         color: #FFFFFF !important;
@@ -178,7 +144,6 @@ st.markdown("""
         height: 3.4rem !important;
     }
 
-    /* 履歴欄視認性 */
     details { background-color: #161B22 !important; border: 1px solid #30363D !important; border-radius: 8px !important; margin-bottom: 8px !important; }
     summary { color: #FFFFFF !important; font-weight: 700 !important; font-size: 1.05rem !important; }
     details div[data-testid="stExpanderDetails"] { background-color: #0D1117 !important; color: #FFFFFF !important; }
@@ -186,7 +151,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# アプリタイトル
 st.title("💳 家計簿入力アプリ")
 
 df_all = load_data_from_sheet()
