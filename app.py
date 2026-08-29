@@ -3,7 +3,7 @@ from datetime import datetime, date
 import pandas as pd
 import streamlit as st
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import traceback
 
 # 1. ページ設定
@@ -14,19 +14,17 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Googleスプレッドシート接続設定（Base64/キー自動補正版）
+# 2. Googleスプレッドシート接続設定（Credentials直読み・補正版）
 @st.cache_resource
 def get_gspread_client():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
     
     if "gcp_service_account" not in st.secrets:
         # ローカル環境用
-        creds = ServiceAccountCredentials.from_json_keyfile_name(
-            "credentials.json", scope
-        )
+        creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
         return gspread.authorize(creds)
 
     sec = st.secrets["gcp_service_account"]
@@ -46,38 +44,35 @@ def get_gspread_client():
     else:
         creds_dict = dict(sec)
 
-    # private_key 内の補正処理
+    # private_key の整形処理
     if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
         p_key = creds_dict["private_key"]
         
-        # \n（文字列のエスケープ）を実際の改行に変換
+        # 実改行を一旦すべて単一の \n に変換
+        p_key = p_key.replace("\r\n", "\n").replace("\r", "\n")
+        # リテラルの \n も実際の改行に変換
         p_key = p_key.replace("\\n", "\n")
         
-        # Base64崩れを防ぐため、ヘッダーとフッターを除いたボディ部分の空白・余剰改行を除去
-        lines = [line.strip() for line in p_key.splitlines() if line.strip()]
-        header = "-----BEGIN PRIVATE KEY-----"
-        footer = "-----END PRIVATE KEY-----"
+        # ヘッダー/フッター以外から英数字と標準的なBase64記号(+, /, =)のみを抽出
+        lines = p_key.split("\n")
+        body_parts = []
+        for line in lines:
+            line_str = line.strip()
+            if line_str and not line_str.startswith("-----"):
+                body_parts.append(line_str)
         
-        body_lines = [l for l in lines if not l.startswith("-----")]
+        raw_body = "".join(body_parts).replace(" ", "")
         
-        # 鍵本文の改行を一旦すべて繋げてから、Base64のパディング(=)補正を実施
-        body_str = "".join(body_lines)
-        
-        # 4の倍数に足りない場合は '=' で補填
-        rem = len(body_str) % 4
-        if rem > 0:
-            body_str += "=" * (4 - rem)
-            
-        # 64文字ごとに改行して正規のPEM形式を構築
-        formatted_body = "\n".join([body_str[i:i+64] for i in range(0, len(body_str), 64)])
-        p_key = f"{header}\n{formatted_body}\n{footer}\n"
+        # 鍵本文を64文字ずつ改行整形してPEM形式を作る
+        formatted_body = "\n".join([raw_body[i:i+64] for i in range(0, len(raw_body), 64)])
+        p_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
         
         creds_dict["private_key"] = p_key
-        
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
-# ★作成したGoogleスプレッドシートの「ファイル名」を正確に入力してください
+# ★作成したGoogleスプレッドシートの「ファイル名」
 SPREADSHEET_NAME = "家計簿データ" 
 BASE_COLUMNS = ["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"]
 
@@ -372,7 +367,7 @@ for cat, budget in BUDGET_MAP.items():
         if budget == 0:
             st.caption(f"支出: ¥{int(spent):,} (※ 予算未設定)")
         elif remaining < 0:
-            st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (⚠️ 超超: ¥{abs(int(remaining)):,} 円)")
+            st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (⚠️ 超過: ¥{abs(int(remaining)):,} 円)")
         else:
             st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (残り: ¥{int(remaining):,} 円)")
     
