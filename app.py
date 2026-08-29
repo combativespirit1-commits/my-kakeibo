@@ -90,8 +90,9 @@ BUDGET_MAP = {
     "医療": 5000
 }
 
+# 食費に「その他」を追加変更
 CATEGORY_MAP = {
-    "食費": ["ドンキ", "コープ", "コストコ"],
+    "食費": ["ドンキ", "コープ", "コストコ", "その他"],
     "外食": ["外食", "コンビニ", "パン屋", "ママ友会"],
     "日用品": ["大人日用品", "子ども日用品"],
     "交通費（アルファード）": ["ガソリン代", "ETC代"],
@@ -109,8 +110,34 @@ st.markdown("""
     input { color: #FFFFFF !important; background-color: #161B22 !important; }
     div[data-baseweb="input"] { background-color: #161B22 !important; border-color: #30363D !important; }
 
+    /* スマホ画面でのテンキー横並び最適化 */
+    div[data-testid="stHorizontalBlock"]:has(button) {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(button) > div {
+        width: 25% !important;
+        min-width: 0 !important;
+        flex: 1 1 0% !important;
+    }
+
+    /* テンキーボタンデザイン */
+    div[data-testid="stColumn"] button {
+        background-color: #30363D !important;
+        color: #FFFFFF !important;
+        font-size: 1.1rem !important;
+        font-weight: 700 !important;
+        border: 1px solid #8B949E !important;
+        border-radius: 6px !important;
+        height: 2.8rem !important;
+        padding: 0px !important;
+    }
+    div[data-testid="stColumn"] button:hover { background-color: #484F58 !important; border-color: #58A6FF !important; }
+
     /* メイン登録ボタン */
-    button[kind="primaryFormSubmit"], button[kind="primary"] {
+    button[kind="primary"] {
         background: linear-gradient(135deg, #1F6FEB 0%, #238636 100%) !important;
         color: #FFFFFF !important;
         font-size: 1.2rem !important;
@@ -131,6 +158,8 @@ st.title("💳 家計簿入力アプリ")
 
 df_all = load_data_from_sheet()
 
+if "amount" not in st.session_state:
+    st.session_state["amount"] = 0
 if "edit_index" not in st.session_state:
     st.session_state["edit_index"] = None
 
@@ -189,40 +218,91 @@ cat_medium = st.radio("カテゴリ中", sub_categories, horizontal=True)
 
 st.markdown("---")
 
-# --- 2. フォーム入力（無遅延・一括送信フォーム） ---
-with st.form("entry_form", clear_on_submit=True):
-    st.caption("💵 金額＆詳細を入力")
-    
-    # スマホのテンキーキーボードが自動で立ち上がる入力フィールド
-    amount_val = st.number_input(
-        "金額 (円)",
-        min_value=0,
-        step=100,
-        value=0,
-        help="タップすると数値用キーボードが開きます"
-    )
-    
-    cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細な分類やアイテム名など")
-    memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
-    
-    submit_btn = st.form_submit_button("💾 記録する", type="primary", use_container_width=True)
+# --- 2. テンキー入力 ---
+st.caption("💵 金額を入力")
 
-if submit_btn:
-    if amount_val > 0:
+# テンキー処理用のコールバック関数（rerun不要で最速反映）
+def append_digit(d):
+    s = str(st.session_state["amount"])
+    if s == "0":
+        st.session_state["amount"] = int(d)
+    else:
+        new_s = s + str(d)
+        if len(new_s) <= 9:
+            st.session_state["amount"] = int(new_s)
+
+def append_double_zero():
+    s = str(st.session_state["amount"])
+    if s != "0" and len(s) <= 7:
+        st.session_state["amount"] = int(s + "00")
+
+def add_value(v):
+    st.session_state["amount"] += v
+
+def do_backspace():
+    s = str(st.session_state["amount"])
+    if len(s) > 1:
+        st.session_state["amount"] = int(s[:-1])
+    else:
+        st.session_state["amount"] = 0
+
+def do_clear():
+    st.session_state["amount"] = 0
+
+amount_input = st.number_input(
+    "金額（手入力・テンキー両対応）",
+    min_value=0,
+    key="amount",
+    step=1
+)
+
+k1, k2, k3, k4 = st.columns(4)
+with k1:
+    st.button("7", use_container_width=True, on_click=append_digit, args=("7",))
+    st.button("4", use_container_width=True, on_click=append_digit, args=("4",))
+    st.button("1", use_container_width=True, on_click=append_digit, args=("1",))
+    st.button("0", use_container_width=True, on_click=append_digit, args=("0",))
+
+with k2:
+    st.button("8", use_container_width=True, on_click=append_digit, args=("8",))
+    st.button("5", use_container_width=True, on_click=append_digit, args=("5",))
+    st.button("2", use_container_width=True, on_click=append_digit, args=("2",))
+    st.button("00", use_container_width=True, on_click=append_double_zero)
+
+with k3:
+    st.button("9", use_container_width=True, on_click=append_digit, args=("9",))
+    st.button("6", use_container_width=True, on_click=append_digit, args=("6",))
+    st.button("3", use_container_width=True, on_click=append_digit, args=("3",))
+    st.button("⌫", use_container_width=True, on_click=do_backspace)
+
+with k4:
+    st.button("C", use_container_width=True, on_click=do_clear)
+    st.button("+100", use_container_width=True, on_click=add_value, args=(100,))
+    st.button("+500", use_container_width=True, on_click=add_value, args=(500,))
+    st.button("+1k", use_container_width=True, on_click=add_value, args=(1000,))
+
+cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細な分類やアイテム名など")
+memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
+
+# --- 3. 登録ボタン ---
+if st.button("💾 記録する", type="primary", use_container_width=True):
+    current_amount = st.session_state["amount"]
+    if current_amount > 0:
         entry_date = datetime.now().strftime("%Y-%m-%d")
         pay_date_str = pay_date.strftime("%Y-%m-%d")
         
-        row_data = [pay_date_str, entry_date, cat_large, cat_medium, cat_small, str(amount_val), str(memo)]
+        row_data = [pay_date_str, entry_date, cat_large, cat_medium, cat_small, str(current_amount), str(memo)]
         
         if append_data_to_sheet(row_data):
-            st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {amount_val:,}円")
+            st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
+            st.session_state["amount"] = 0
             st.rerun()
     else:
-        st.warning("金額を入力してください（0円より大きい必要があります）。")
+        st.warning("金額を入力してください。")
 
 st.divider()
 
-# --- 3. 予算状況サマリー ---
+# --- 4. 予算状況サマリー ---
 st.subheader(f"📊 全カテゴリ（{target_period_label}）の予算状況")
 
 total_budget = sum(BUDGET_MAP.values())
@@ -265,7 +345,7 @@ for cat, budget in BUDGET_MAP.items():
     
     st.progress(percent)
 
-# --- 4. 履歴 ---
+# --- 5. 履歴 ---
 st.divider()
 st.subheader("📜 履歴（直近5件）")
 
