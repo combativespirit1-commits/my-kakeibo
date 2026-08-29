@@ -5,6 +5,7 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import traceback
+import plotly.express as px
 
 # 1. ページ設定
 st.set_page_config(
@@ -338,33 +339,55 @@ if not df_all.empty:
     total_sum = pd.to_numeric(df_all['金額'], errors='coerce').fillna(0).sum()
     st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
 
-# --- 5. カテゴリ中（細分化）の支出グラフ ---
+# --- 5. 1回ごとの支払い内訳が見える積み上げグラフ ---
 st.divider()
-st.subheader(f"📈 カテゴリ別（大 ➔ 中）支出内訳 ({target_period_label})")
+st.subheader(f"📈 支出内訳（1回ごとの積み上げ） ({target_period_label})")
 
 if not df_month.empty:
-    # 数値変換と集計
     df_chart = df_month.copy()
     df_chart["金額_num"] = pd.to_numeric(df_chart["金額"], errors="coerce").fillna(0)
+    df_chart = df_chart[df_chart["金額_num"] > 0]
     
-    # 大カテゴリと中カテゴリを組み合わせた表示名を作成
-    df_chart["カテゴリ詳細"] = df_chart["カテゴリ大"] + " : " + df_chart["カテゴリ中"]
-    
-    grouped_chart = df_chart.groupby("カテゴリ詳細")["金額_num"].sum().reset_index()
-    grouped_chart = grouped_chart[grouped_chart["金額_num"] > 0] # 支出があるもののみ抽出
-    
-    if not grouped_chart.empty:
-        # 金額順にソート
-        grouped_chart = grouped_chart.sort_values(by="金額_num", ascending=True)
+    if not df_chart.empty:
+        # カテゴリ詳細ラベル
+        df_chart["カテゴリ詳細"] = df_chart["カテゴリ大"] + " : " + df_chart["カテゴリ中"]
         
-        # Streamlit標準の横棒グラフ表示
-        st.bar_chart(
-            data=grouped_chart,
-            x="カテゴリ詳細",
-            y="金額_num",
-            horizontal=True,
-            color="#58A6FF"
+        # 識別用に連番ラベルを作成（例: ドンキ #1 (5,000円)）
+        df_chart["支払い件数"] = df_chart.groupby("カテゴリ詳細").cumcount() + 1
+        df_chart["内訳"] = df_chart.apply(
+            lambda r: f"{r['カテゴリ中']} #{r['支払い件数']} ({int(r['金額_num']):,}円)", axis=1
         )
+        
+        # Plotlyで積み上げ横棒グラフ作成
+        fig = px.bar(
+            df_chart,
+            x="金額_num",
+            y="カテゴリ詳細",
+            color="内訳",
+            orientation="h",
+            labels={"金額_num": "金額 (円)", "カテゴリ詳細": "カテゴリ"},
+            hover_data=["支払い日", "金額_num", "カテゴリ小", "メモ"]
+        )
+        
+        # ダークモード用のデザイン調整
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#FFFFFF"),
+            showlegend=False,  # 凡例が多すぎるため非表示（タップ/ホバーで詳細確認可能）
+            xaxis=dict(showgrid=True, gridcolor="#30363D"),
+            yaxis=dict(autorange="reversed"), # 上から順に表示
+            margin=dict(l=10, r=10, t=10, b=10)
+        )
+        
+        # バーの中に金額を表示
+        fig.update_traces(
+            texttemplate='%{x:,.0f}',
+            textposition='inside',
+            insidetextanchor='middle'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("対象期間の支出データ（1円以上）がまだありません。")
 else:
