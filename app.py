@@ -20,19 +20,27 @@ def get_gspread_client():
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
-    # Streamlit Cloud の Secrets から認証情報を取り出す
+    
     if "gcp_service_account" in st.secrets:
-        # SecretsがTOMLテーブル(dict)形式の場合
+        # SecretsからDictとして取得
         if isinstance(st.secrets["gcp_service_account"], dict):
             creds_dict = dict(st.secrets["gcp_service_account"])
         else:
-            # Secretsが文字列(JSON)形式の場合
             import json
-            creds_dict = json.loads(st.secrets["gcp_service_account"])
+            # 文字列の場合はJSON変換
+            raw_secrets = str(st.secrets["gcp_service_account"])
+            # 改行コードのエラー対策
+            creds_dict = json.loads(raw_secrets, strict=False)
+        
+        # private_key 内の実際の改行を \n に整えて修正
+        if "private_key" in creds_dict:
+            pk = creds_dict["private_key"]
+            pk = pk.replace("\\n", "\n")
+            creds_dict["private_key"] = pk
             
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     else:
-        # ローカルテスト用（credentials.json を同階層に配置した場合）
+        # ローカル環境用
         creds = ServiceAccountCredentials.from_json_keyfile_name(
             "credentials.json", scope
         )
