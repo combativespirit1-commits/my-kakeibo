@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import traceback
 
 # 1. ページ設定
 st.set_page_config(
@@ -13,9 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-import traceback
-
-# 2. Googleスプレッドシート接続設定（デバッグ強化版）
+# 2. Googleスプレッドシート接続設定（Base64/キー自動補正版）
 @st.cache_resource
 def get_gspread_client():
     scope = [
@@ -24,7 +23,7 @@ def get_gspread_client():
     ]
     
     if "gcp_service_account" not in st.secrets:
-        # ローカル環境用（credentials.json を同階層に配置した場合）
+        # ローカル環境用
         creds = ServiceAccountCredentials.from_json_keyfile_name(
             "credentials.json", scope
         )
@@ -32,7 +31,7 @@ def get_gspread_client():
 
     sec = st.secrets["gcp_service_account"]
     
-    # Secrets の形式を辞書(dict)に統一
+    # Secrets の形式を辞書(dict)に変換
     if hasattr(sec, "to_dict"):
         creds_dict = sec.to_dict()
     elif isinstance(sec, dict):
@@ -47,29 +46,36 @@ def get_gspread_client():
     else:
         creds_dict = dict(sec)
 
-    # private_key 内のエスケープ文字 \n を本物の改行コードに置換
+    # private_key 内の補正処理
     if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
         p_key = creds_dict["private_key"]
+        
+        # \n（文字列のエスケープ）を実際の改行に変換
         p_key = p_key.replace("\\n", "\n")
+        
+        # Base64崩れを防ぐため、ヘッダーとフッターを除いたボディ部分の空白・余剰改行を除去
+        lines = [line.strip() for line in p_key.splitlines() if line.strip()]
+        header = "-----BEGIN PRIVATE KEY-----"
+        footer = "-----END PRIVATE KEY-----"
+        
+        body_lines = [l for l in lines if not l.startswith("-----")]
+        
+        # 鍵本文の改行を一旦すべて繋げてから、Base64のパディング(=)補正を実施
+        body_str = "".join(body_lines)
+        
+        # 4の倍数に足りない場合は '=' で補填
+        rem = len(body_str) % 4
+        if rem > 0:
+            body_str += "=" * (4 - rem)
+            
+        # 64文字ごとに改行して正規のPEM形式を構築
+        formatted_body = "\n".join([body_str[i:i+64] for i in range(0, len(body_str), 64)])
+        p_key = f"{header}\n{formatted_body}\n{footer}\n"
+        
         creds_dict["private_key"] = p_key
         
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
-
-def load_data_from_sheet():
-    try:
-        client = get_gspread_client()
-        sheet = client.open(SPREADSHEET_NAME).sheet1
-        records = sheet.get_all_records()
-        df = pd.DataFrame(records)
-        if df.empty:
-            return pd.DataFrame(columns=BASE_COLUMNS)
-        return df.astype(str)
-    except Exception as e:
-        # エラーが空の場合でも詳細を出力できるように補正
-        err_msg = str(e) if str(e).strip() else f"{type(e).__name__}\n{traceback.format_exc()}"
-        st.error(f"スプレッドシートの読み込みエラー:\n{err_msg}")
-        return pd.DataFrame(columns=BASE_COLUMNS)
 
 # ★作成したGoogleスプレッドシートの「ファイル名」を正確に入力してください
 SPREADSHEET_NAME = "家計簿データ" 
@@ -85,7 +91,8 @@ def load_data_from_sheet():
             return pd.DataFrame(columns=BASE_COLUMNS)
         return df.astype(str)
     except Exception as e:
-        st.error(f"スプレッドシートの読み込みエラー: {e}")
+        err_msg = str(e) if str(e).strip() else f"{type(e).__name__}\n{traceback.format_exc()}"
+        st.error(f"スプレッドシートの読み込みエラー:\n{err_msg}")
         return pd.DataFrame(columns=BASE_COLUMNS)
 
 def append_data_to_sheet(row_data):
@@ -365,7 +372,7 @@ for cat, budget in BUDGET_MAP.items():
         if budget == 0:
             st.caption(f"支出: ¥{int(spent):,} (※ 予算未設定)")
         elif remaining < 0:
-            st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (⚠️ 超過: ¥{abs(int(remaining)):,} 円)")
+            st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (⚠️ 超超: ¥{abs(int(remaining)):,} 円)")
         else:
             st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (残り: ¥{int(remaining):,} 円)")
     
