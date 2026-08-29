@@ -2,7 +2,6 @@ import os
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 import gspread
 from google.oauth2.service_account import Credentials
 import traceback
@@ -110,6 +109,33 @@ st.markdown("""
     input { color: #FFFFFF !important; background-color: #161B22 !important; }
     div[data-baseweb="input"] { background-color: #161B22 !important; border-color: #30363D !important; }
 
+    /* スマホ画面でのテンキー横並び最適化 */
+    div[data-testid="stHorizontalBlock"]:has(button) {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(button) > div {
+        width: 25% !important;
+        min-width: 0 !important;
+        flex: 1 1 0% !important;
+    }
+
+    /* テンキーボタン */
+    div[data-testid="stColumn"] button {
+        background-color: #30363D !important;
+        color: #FFFFFF !important;
+        font-size: 1.1rem !important;
+        font-weight: 700 !important;
+        border: 1px solid #8B949E !important;
+        border-radius: 6px !important;
+        height: 2.8rem !important;
+        padding: 0px !important;
+    }
+    div[data-testid="stColumn"] button:hover { background-color: #484F58 !important; border-color: #58A6FF !important; }
+
+    /* メイン登録ボタン */
     button[kind="primary"] {
         background: linear-gradient(135deg, #1F6FEB 0%, #238636 100%) !important;
         color: #FFFFFF !important;
@@ -119,6 +145,7 @@ st.markdown("""
         height: 3.4rem !important;
     }
 
+    /* 履歴 */
     details { background-color: #161B22 !important; border: 1px solid #30363D !important; border-radius: 8px !important; margin-bottom: 8px !important; }
     summary { color: #FFFFFF !important; font-weight: 700 !important; font-size: 1.05rem !important; }
     details div[data-testid="stExpanderDetails"] { background-color: #0D1117 !important; color: #FFFFFF !important; }
@@ -130,6 +157,8 @@ st.title("💳 家計簿入力アプリ")
 
 df_all = load_data_from_sheet()
 
+if "amount" not in st.session_state:
+    st.session_state["amount"] = 0
 if "edit_index" not in st.session_state:
     st.session_state["edit_index"] = None
 
@@ -151,7 +180,7 @@ else:
         target_period_label = f"12月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
     else:
         start_date = date(pay_date.year, pay_date.month - 1, 16)
-        end_date = date(pay_date.year, pay_date.month, 15)
+        end_date = date(pay_date.year, pay_date.month - 1, 15)
         target_period_label = f"{pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 
 if not df_all.empty:
@@ -189,128 +218,74 @@ cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細�
 
 st.markdown("---")
 
-# --- 2. 超高速キーパッド ---
+# --- 2. テンキー入力 ---
 st.caption("💵 金額を入力")
 
-amount_val = st.number_input(
-    "金額（キーパッド / キーボード両対応）",
+# テンキー処理用のコールバック関数
+def append_digit(d):
+    s = str(st.session_state["amount"])
+    if s == "0":
+        st.session_state["amount"] = int(d)
+    else:
+        new_s = s + str(d)
+        if len(new_s) <= 9:
+            st.session_state["amount"] = int(new_s)
+
+def append_double_zero():
+    s = str(st.session_state["amount"])
+    if s != "0" and len(s) <= 7:
+        st.session_state["amount"] = int(s + "00")
+
+def add_value(v):
+    st.session_state["amount"] += v
+
+def do_backspace():
+    s = str(st.session_state["amount"])
+    if len(s) > 1:
+        st.session_state["amount"] = int(s[:-1])
+    else:
+        st.session_state["amount"] = 0
+
+def do_clear():
+    st.session_state["amount"] = 0
+
+amount_input = st.number_input(
+    "金額（手入力・テンキー両対応）",
     min_value=0,
-    value=0,
-    step=100,
-    key="amount_input"
+    key="amount",
+    step=1
 )
 
-# JavaScriptによる完全ローカル制御テンキー
-keypad_html = """
-<style>
-    .keypad-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 6px;
-        margin-top: 4px;
-        margin-bottom: 10px;
-    }
-    .keypad-btn {
-        background-color: #30363D;
-        color: #FFFFFF;
-        font-size: 1.1rem;
-        font-weight: 700;
-        border: 1px solid #8B949E;
-        border-radius: 6px;
-        height: 2.8rem;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        user-select: none;
-        -webkit-tap-highlight-color: transparent;
-    }
-    .keypad-btn:active {
-        background-color: #58A6FF !important;
-        transform: scale(0.96);
-    }
-</style>
+k1, k2, k3, k4 = st.columns(4)
+with k1:
+    st.button("7", use_container_width=True, on_click=append_digit, args=("7",))
+    st.button("4", use_container_width=True, on_click=append_digit, args=("4",))
+    st.button("1", use_container_width=True, on_click=append_digit, args=("1",))
+    st.button("0", use_container_width=True, on_click=append_digit, args=("0",))
 
-<div class="keypad-grid">
-    <button class="keypad-btn" onclick="press('7')">7</button>
-    <button class="keypad-btn" onclick="press('8')">8</button>
-    <button class="keypad-btn" onclick="press('9')">9</button>
-    <button class="keypad-btn" onclick="clearVal()">C</button>
-    
-    <button class="keypad-btn" onclick="press('4')">4</button>
-    <button class="keypad-btn" onclick="press('5')">5</button>
-    <button class="keypad-btn" onclick="press('6')">6</button>
-    <button class="keypad-btn" onclick="addVal(100)">+100</button>
-    
-    <button class="keypad-btn" onclick="press('1')">1</button>
-    <button class="keypad-btn" onclick="press('2')">2</button>
-    <button class="keypad-btn" onclick="press('3')">3</button>
-    <button class="keypad-btn" onclick="addVal(500)">+500</button>
-    
-    <button class="keypad-btn" onclick="press('0')">0</button>
-    <button class="keypad-btn" onclick="press('00')">00</button>
-    <button class="keypad-btn" onclick="backspace()">⌫</button>
-    <button class="keypad-btn" onclick="addVal(1000)">+1k</button>
-</div>
+with k2:
+    st.button("8", use_container_width=True, on_click=append_digit, args=("8",))
+    st.button("5", use_container_width=True, on_click=append_digit, args=("5",))
+    st.button("2", use_container_width=True, on_click=append_digit, args=("2",))
+    st.button("00", use_container_width=True, on_click=append_double_zero)
 
-<script>
-function getTargetInput() {
-    return window.parent.document.querySelector('input[data-testid="stNumberInput-Input"]');
-}
+with k3:
+    st.button("9", use_container_width=True, on_click=append_digit, args=("9",))
+    st.button("6", use_container_width=True, on_click=append_digit, args=("6",))
+    st.button("3", use_container_width=True, on_click=append_digit, args=("3",))
+    st.button("⌫", use_container_width=True, on_click=do_backspace)
 
-function triggerEvent(el) {
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-function press(num) {
-    const input = getTargetInput();
-    if (!input) return;
-    let cur = input.value || "0";
-    if (cur === "0") {
-        input.value = num;
-    } else {
-        input.value = cur + num;
-    }
-    triggerEvent(input);
-}
-
-function addVal(val) {
-    const input = getTargetInput();
-    if (!input) return;
-    let cur = parseInt(input.value, 10) || 0;
-    input.value = cur + val;
-    triggerEvent(input);
-}
-
-function backspace() {
-    const input = getTargetInput();
-    if (!input) return;
-    let cur = input.value || "0";
-    if (cur.length > 1) {
-        input.value = cur.slice(0, -1);
-    } else {
-        input.value = "0";
-    }
-    triggerEvent(input);
-}
-
-function clearVal() {
-    const input = getTargetInput();
-    if (!input) return;
-    input.value = "0";
-    triggerEvent(input);
-}
-</script>
-"""
-
-components.html(keypad_html, height=210)
+with k4:
+    st.button("C", use_container_width=True, on_click=do_clear)
+    st.button("+100", use_container_width=True, on_click=add_value, args=(100,))
+    st.button("+500", use_container_width=True, on_click=add_value, args=(500,))
+    st.button("+1k", use_container_width=True, on_click=add_value, args=(1000,))
 
 # --- 3. メモ & 登録ボタン ---
 memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
 
 if st.button("💾 記録する", type="primary", use_container_width=True):
-    current_amount = int(amount_val)
+    current_amount = st.session_state["amount"]
     if current_amount > 0:
         entry_date = datetime.now().strftime("%Y-%m-%d")
         pay_date_str = pay_date.strftime("%Y-%m-%d")
@@ -319,6 +294,7 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
         
         if append_data_to_sheet(row_data):
             st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
+            st.session_state["amount"] = 0
             st.rerun()
     else:
         st.warning("金額を入力してください。")
