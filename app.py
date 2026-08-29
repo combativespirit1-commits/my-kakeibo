@@ -13,29 +13,44 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Googleスプレッドシート接続設定
+# 2. Googleスプレッドシート接続設定（Secretsエラー修正版）
 @st.cache_resource
 def get_gspread_client():
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
-    # Streamlit Cloud の Secrets から認証情報を取り出す
+    
     if "gcp_service_account" in st.secrets:
-        # SecretsがTOMLテーブル(dict)形式の場合
-        if isinstance(st.secrets["gcp_service_account"], dict):
-            creds_dict = dict(st.secrets["gcp_service_account"])
-        else:
-            # Secretsが文字列(JSON)形式の場合
+        sec = st.secrets["gcp_service_account"]
+        
+        # 1. Secretsがすでに辞書型(AttrDict/dict)の場合
+        if hasattr(sec, "to_dict"):
+            creds_dict = sec.to_dict()
+        elif isinstance(sec, dict):
+            creds_dict = dict(sec)
+        # 2. Secretsが文字列(JSON)の場合
+        elif isinstance(sec, str):
             import json
-            creds_dict = json.loads(st.secrets["gcp_service_account"])
+            cleaned_sec = sec.replace('\n', '\\n').replace('\r', '')
+            try:
+                creds_dict = json.loads(sec)
+            except Exception:
+                creds_dict = json.loads(cleaned_sec)
+        else:
+            creds_dict = dict(sec)
+
+        # private_key 内の \n（エスケープされた改行）を実際の改行コードに変換
+        if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
             
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     else:
-        # ローカルテスト用（credentials.json を同階層に配置した場合）
+        # ローカル環境用（credentials.json を同階層に配置した場合）
         creds = ServiceAccountCredentials.from_json_keyfile_name(
             "credentials.json", scope
         )
+        
     return gspread.authorize(creds)
 
 # ★作成したGoogleスプレッドシートの「ファイル名」を正確に入力してください
@@ -87,7 +102,7 @@ BUDGET_MAP = {
     "医療": 5000
 }
 
-# カテゴリ設定の更新
+# カテゴリ設定
 CATEGORY_MAP = {
     "食費": ["ドンキ", "コープ", "コストコ"],
     "外食": ["外食", "コンビニ", "パン屋", "ママ友会"],
@@ -151,7 +166,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# アプリタイトルの変更
+# アプリタイトル
 st.title("💳 家計簿入力アプリ")
 
 df_all = load_data_from_sheet()
