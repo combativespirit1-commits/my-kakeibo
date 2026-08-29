@@ -24,29 +24,31 @@ def get_gspread_client():
     if "gcp_service_account" in st.secrets:
         sec = st.secrets["gcp_service_account"]
         
-        # 1. Secretsがすでに辞書型(AttrDict/dict)の場合
+        # 1. 辞書型(dict/AttrDict)として読み込まれている場合
         if hasattr(sec, "to_dict"):
             creds_dict = sec.to_dict()
         elif isinstance(sec, dict):
             creds_dict = dict(sec)
-        # 2. Secretsが文字列(JSON)の場合
+        # 2. 文字列(JSON)として読み込まれている場合
         elif isinstance(sec, str):
             import json
-            cleaned_sec = sec.replace('\n', '\\n').replace('\r', '')
+            # 不要な改行や制御文字のエラーを防止
             try:
                 creds_dict = json.loads(sec)
             except Exception:
+                # 制御文字などのエラーが発生した際のエスケープ補正
+                cleaned_sec = sec.replace('\n', '\\n').replace('\r', '')
                 creds_dict = json.loads(cleaned_sec)
         else:
             creds_dict = dict(sec)
 
-        # private_key 内の \n（エスケープされた改行）を実際の改行コードに変換
+        # private_key 内の \n を実際の改行コードに変換
         if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
             creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
             
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     else:
-        # ローカル環境用（credentials.json を同階層に配置した場合）
+        # ローカル環境用
         creds = ServiceAccountCredentials.from_json_keyfile_name(
             "credentials.json", scope
         )
