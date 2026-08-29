@@ -13,7 +13,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Googleスプレッドシート接続設定（Secretsエラー修正版）
+import traceback
+
+# 2. Googleスプレッドシート接続設定（デバッグ強化版）
 @st.cache_resource
 def get_gspread_client():
     scope = [
@@ -21,39 +23,53 @@ def get_gspread_client():
         "https://www.googleapis.com/auth/drive"
     ]
     
-    if "gcp_service_account" in st.secrets:
-        sec = st.secrets["gcp_service_account"]
-        
-        # 1. 辞書型(dict/AttrDict)として読み込まれている場合
-        if hasattr(sec, "to_dict"):
-            creds_dict = sec.to_dict()
-        elif isinstance(sec, dict):
-            creds_dict = dict(sec)
-        # 2. 文字列(JSON)として読み込まれている場合
-        elif isinstance(sec, str):
-            import json
-            # 不要な改行や制御文字のエラーを防止
-            try:
-                creds_dict = json.loads(sec)
-            except Exception:
-                # 制御文字などのエラーが発生した際のエスケープ補正
-                cleaned_sec = sec.replace('\n', '\\n').replace('\r', '')
-                creds_dict = json.loads(cleaned_sec)
-        else:
-            creds_dict = dict(sec)
-
-        # private_key 内の \n を実際の改行コードに変換
-        if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    else:
-        # ローカル環境用
+    if "gcp_service_account" not in st.secrets:
+        # ローカル環境用（credentials.json を同階層に配置した場合）
         creds = ServiceAccountCredentials.from_json_keyfile_name(
             "credentials.json", scope
         )
+        return gspread.authorize(creds)
+
+    sec = st.secrets["gcp_service_account"]
+    
+    # Secrets の形式を辞書(dict)に統一
+    if hasattr(sec, "to_dict"):
+        creds_dict = sec.to_dict()
+    elif isinstance(sec, dict):
+        creds_dict = dict(sec)
+    elif isinstance(sec, str):
+        import json
+        try:
+            creds_dict = json.loads(sec)
+        except Exception:
+            cleaned_sec = sec.replace('\n', '\\n').replace('\r', '')
+            creds_dict = json.loads(cleaned_sec)
+    else:
+        creds_dict = dict(sec)
+
+    # private_key 内のエスケープ文字 \n を本物の改行コードに置換
+    if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
+        p_key = creds_dict["private_key"]
+        p_key = p_key.replace("\\n", "\n")
+        creds_dict["private_key"] = p_key
         
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
+
+def load_data_from_sheet():
+    try:
+        client = get_gspread_client()
+        sheet = client.open(SPREADSHEET_NAME).sheet1
+        records = sheet.get_all_records()
+        df = pd.DataFrame(records)
+        if df.empty:
+            return pd.DataFrame(columns=BASE_COLUMNS)
+        return df.astype(str)
+    except Exception as e:
+        # エラーが空の場合でも詳細を出力できるように補正
+        err_msg = str(e) if str(e).strip() else f"{type(e).__name__}\n{traceback.format_exc()}"
+        st.error(f"スプレッドシートの読み込みエラー:\n{err_msg}")
+        return pd.DataFrame(columns=BASE_COLUMNS)
 
 # ★作成したGoogleスプレッドシートの「ファイル名」を正確に入力してください
 SPREADSHEET_NAME = "家計簿データ" 
