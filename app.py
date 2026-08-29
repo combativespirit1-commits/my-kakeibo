@@ -2,6 +2,8 @@ import os
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # 1. ページ設定
 st.set_page_config(
@@ -11,7 +13,70 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-EXCEL_FILE = "kakeibo_data.xlsx"
+# 2. Googleスプレッドシート接続設定
+@st.cache_resource
+def get_gspread_client():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    # Streamlit Cloud の Secrets から認証情報を取り出す
+    if "gcp_service_account" in st.secrets:
+        # SecretsがTOMLテーブル(dict)形式の場合
+        if isinstance(st.secrets["gcp_service_account"], dict):
+            creds_dict = dict(st.secrets["gcp_service_account"])
+        else:
+            # Secretsが文字列(JSON)形式の場合
+            import json
+            creds_dict = json.loads(st.secrets["gcp_service_account"])
+            
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    else:
+        # ローカルテスト用（credentials.json を同階層に配置した場合）
+        creds = ServiceAccountCredentials.from_json_keyfile_name(
+            "credentials.json", scope
+        )
+    return gspread.authorize(creds)
+
+# ★作成したGoogleスプレッドシートの「ファイル名」を正確に入力してください
+SPREADSHEET_NAME = "家計簿データ" 
+BASE_COLUMNS = ["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"]
+
+def load_data_from_sheet():
+    try:
+        client = get_gspread_client()
+        sheet = client.open(SPREADSHEET_NAME).sheet1
+        records = sheet.get_all_records()
+        df = pd.DataFrame(records)
+        if df.empty:
+            return pd.DataFrame(columns=BASE_COLUMNS)
+        return df.astype(str)
+    except Exception as e:
+        st.error(f"スプレッドシートの読み込みエラー: {e}")
+        return pd.DataFrame(columns=BASE_COLUMNS)
+
+def append_data_to_sheet(row_data):
+    try:
+        client = get_gspread_client()
+        sheet = client.open(SPREADSHEET_NAME).sheet1
+        sheet.append_row(row_data)
+        return True
+    except Exception as e:
+        st.error(f"書き込みエラー: {e}")
+        return False
+
+def update_all_sheet_data(df):
+    try:
+        client = get_gspread_client()
+        sheet = client.open(SPREADSHEET_NAME).sheet1
+        sheet.clear()
+        sheet.append_row(BASE_COLUMNS)
+        if not df.empty:
+            sheet.append_rows(df.values.tolist())
+        return True
+    except Exception as e:
+        st.error(f"更新エラー: {e}")
+        return False
 
 BUDGET_MAP = {
     "食費": 40000,
@@ -31,21 +96,6 @@ CATEGORY_MAP = {
     "医療": ["病院", "動物病院", "コンタクト"]
 }
 
-BASE_COLUMNS = ["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"]
-
-# データ読み込み（型を完全に固定）
-def load_data():
-    if not os.path.exists(EXCEL_FILE):
-        df_init = pd.DataFrame(columns=BASE_COLUMNS)
-        df_init.to_excel(EXCEL_FILE, index=False)
-        return df_init
-    
-    df = pd.read_excel(EXCEL_FILE, dtype=str)
-    for col in BASE_COLUMNS:
-        if col not in df.columns:
-            df[col] = ""
-    return df[BASE_COLUMNS].fillna("")
-
 # 全体デザインCSS
 st.markdown("""
 <style>
@@ -63,14 +113,13 @@ st.markdown("""
         flex-wrap: nowrap !important;
         gap: 4px !important;
     }
-    
     div[data-testid="stHorizontalBlock"]:has(button) > div {
         width: 25% !important;
         min-width: 0 !important;
         flex: 1 1 0% !important;
     }
 
-    /* テンキーボタン（コンパクト化） */
+    /* テンキーボタン */
     div[data-testid="stColumn"] button {
         background-color: #30363D !important;
         color: #FFFFFF !important;
@@ -93,23 +142,6 @@ st.markdown("""
         height: 3.4rem !important;
     }
 
-    /* ダウンロードボタンの文字可視化 */
-    div[data-testid="stDownloadButton"] button {
-        background-color: #21262D !important;
-        border: 1px solid #8B949E !important;
-        border-radius: 8px !important;
-    }
-    div[data-testid="stDownloadButton"] button p, 
-    div[data-testid="stDownloadButton"] button span {
-        color: #FFFFFF !important;
-        font-size: 1.05rem !important;
-        font-weight: 700 !important;
-    }
-    div[data-testid="stDownloadButton"] button:hover {
-        background-color: #30363D !important;
-        border-color: #58A6FF !important;
-    }
-
     /* 履歴欄視認性 */
     details { background-color: #161B22 !important; border: 1px solid #30363D !important; border-radius: 8px !important; margin-bottom: 8px !important; }
     summary { color: #FFFFFF !important; font-weight: 700 !important; font-size: 1.05rem !important; }
@@ -120,7 +152,7 @@ st.markdown("""
 
 st.title("💳 家計簿")
 
-df_all = load_data()
+df_all = load_data_from_sheet()
 
 if "amount_str" not in st.session_state:
     st.session_state["amount_str"] = "0"
@@ -250,18 +282,12 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
         entry_date = datetime.now().strftime("%Y-%m-%d")
         pay_date_str = pay_date.strftime("%Y-%m-%d")
         
-        new_data = pd.DataFrame(
-            [[pay_date_str, entry_date, cat_large, cat_medium, cat_small, str(current_amount), str(memo)]],
-            columns=BASE_COLUMNS
-        )
+        row_data = [pay_date_str, entry_date, cat_large, cat_medium, cat_small, str(current_amount), str(memo)]
         
-        existing_df = load_data()
-        updated_df = pd.concat([existing_df, new_data], ignore_index=True)
-        updated_df[BASE_COLUMNS].to_excel(EXCEL_FILE, index=False)
-        
-        st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
-        st.session_state["amount_str"] = "0"
-        st.rerun()
+        if append_data_to_sheet(row_data):
+            st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
+            st.session_state["amount_str"] = "0"
+            st.rerun()
     else:
         st.warning("金額を入力してください。")
 
@@ -310,102 +336,87 @@ for cat, budget in BUDGET_MAP.items():
     
     st.progress(percent)
 
-# --- 5. 履歴 & エクスポート ---
+# --- 5. 履歴 ---
 st.divider()
 st.subheader("📜 履歴（直近5件）")
 
-if os.path.exists(EXCEL_FILE):
-    df_current = load_data()
-    if not df_current.empty:
-        recent_indices = list(df_current.tail(5).index)[::-1]
+if not df_all.empty:
+    recent_indices = list(df_all.tail(5).index)[::-1]
+    
+    for idx in recent_indices:
+        row = df_all.loc[idx]
         
-        for idx in recent_indices:
-            row = df_current.loc[idx]
-            
-            raw_date_str = str(row["支払い日"]).split()[0]
-            try:
-                parsed_date = datetime.strptime(raw_date_str, "%Y-%m-%d").date()
-            except Exception:
-                parsed_date = datetime.now().date()
+        raw_date_str = str(row["支払い日"]).split()[0]
+        try:
+            parsed_date = datetime.strptime(raw_date_str, "%Y-%m-%d").date()
+        except Exception:
+            parsed_date = datetime.now().date()
 
-            try:
-                display_amt = int(float(row["金額"]))
-            except Exception:
-                display_amt = 0
+        try:
+            display_amt = int(float(row["金額"]))
+        except Exception:
+            display_amt = 0
+        
+        pay_str = parsed_date.strftime('%Y-%m-%d')
+        cat_l_str = str(row['カテゴリ大'])
+        cat_m_str = str(row['カテゴリ中'])
+        
+        with st.expander(f"【{pay_str}】{cat_l_str} ➔ {cat_m_str} : ¥{display_amt:,}"):
             
-            pay_str = parsed_date.strftime('%Y-%m-%d')
-            cat_l_str = str(row['カテゴリ大'])
-            cat_m_str = str(row['カテゴリ中'])
-            
-            with st.expander(f"【{pay_str}】{cat_l_str} ➔ {cat_m_str} : ¥{display_amt:,}"):
-                
-                if st.session_state["edit_index"] == idx:
-                    with st.form(key=f"edit_form_{idx}"):
-                        edit_pay_date = st.date_input("支払い日", parsed_date)
+            if st.session_state["edit_index"] == idx:
+                with st.form(key=f"edit_form_{idx}"):
+                    edit_pay_date = st.date_input("支払い日", parsed_date)
+                    
+                    cat_l_idx = list(CATEGORY_MAP.keys()).index(cat_l_str) if cat_l_str in CATEGORY_MAP else 0
+                    edit_cat_l = st.selectbox("カテゴリ大", list(CATEGORY_MAP.keys()), index=cat_l_idx)
+                    
+                    sub_cats = CATEGORY_MAP.get(edit_cat_l, [])
+                    cat_m_idx = sub_cats.index(cat_m_str) if cat_m_str in sub_cats else 0
+                    edit_cat_m = st.selectbox("カテゴリ中", sub_cats, index=cat_m_idx)
+                    
+                    edit_cat_s = st.text_input("カテゴリ小", str(row["カテゴリ小"]))
+                    edit_amount = st.number_input("金額", value=display_amt, step=100)
+                    edit_memo = st.text_input("メモ", str(row["メモ"]))
+                    
+                    f_col1, f_col2 = st.columns(2)
+                    with f_col1:
+                        submit_save = st.form_submit_button("💾 更新")
+                    with f_col2:
+                        submit_cancel = st.form_submit_button("❌ キャンセル")
+                    
+                    if submit_save:
+                        df_all.loc[idx, "支払い日"] = edit_pay_date.strftime("%Y-%m-%d")
+                        df_all.loc[idx, "カテゴリ大"] = edit_cat_l
+                        df_all.loc[idx, "カテゴリ中"] = edit_cat_m
+                        df_all.loc[idx, "カテゴリ小"] = edit_cat_s
+                        df_all.loc[idx, "金額"] = str(int(edit_amount))
+                        df_all.loc[idx, "メモ"] = edit_memo
                         
-                        cat_l_idx = list(CATEGORY_MAP.keys()).index(cat_l_str) if cat_l_str in CATEGORY_MAP else 0
-                        edit_cat_l = st.selectbox("カテゴリ大", list(CATEGORY_MAP.keys()), index=cat_l_idx)
-                        
-                        sub_cats = CATEGORY_MAP.get(edit_cat_l, [])
-                        cat_m_idx = sub_cats.index(cat_m_str) if cat_m_str in sub_cats else 0
-                        edit_cat_m = st.selectbox("カテゴリ中", sub_cats, index=cat_m_idx)
-                        
-                        edit_cat_s = st.text_input("カテゴリ小", str(row["カテゴリ小"]))
-                        edit_amount = st.number_input("金額", value=display_amt, step=100)
-                        edit_memo = st.text_input("メモ", str(row["メモ"]))
-                        
-                        f_col1, f_col2 = st.columns(2)
-                        with f_col1:
-                            submit_save = st.form_submit_button("💾 更新")
-                        with f_col2:
-                            submit_cancel = st.form_submit_button("❌ キャンセル")
-                        
-                        if submit_save:
-                            df_save = load_data()
-                            df_save.loc[idx, "支払い日"] = edit_pay_date.strftime("%Y-%m-%d")
-                            df_save.loc[idx, "カテゴリ大"] = edit_cat_l
-                            df_save.loc[idx, "カテゴリ中"] = edit_cat_m
-                            df_save.loc[idx, "カテゴリ小"] = edit_cat_s
-                            df_save.loc[idx, "金額"] = str(int(edit_amount))
-                            df_save.loc[idx, "メモ"] = edit_memo
-                            
-                            df_save[BASE_COLUMNS].to_excel(EXCEL_FILE, index=False)
+                        if update_all_sheet_data(df_all):
                             st.session_state["edit_index"] = None
                             st.success("更新しました！")
                             st.rerun()
-                            
-                        if submit_cancel:
-                            st.session_state["edit_index"] = None
-                            st.rerun()
+                        
+                    if submit_cancel:
+                        st.session_state["edit_index"] = None
+                        st.rerun()
+            
+            else:
+                st.markdown(f"**カテゴリ小:** {row['カテゴリ小'] if str(row['カテゴリ小']).strip() != '' else 'なし'}")
+                st.markdown(f"**メモ:** {row['メモ'] if str(row['メモ']).strip() != '' else 'なし'}")
+                st.markdown("---")
                 
-                else:
-                    st.markdown(f"**カテゴリ小:** {row['カテゴリ小'] if str(row['カテゴリ小']).strip() != '' else 'なし'}")
-                    st.markdown(f"**メモ:** {row['メモ'] if str(row['メモ']).strip() != '' else 'なし'}")
-                    st.markdown("---")
-                    
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.button("✏️ 編集する", key=f"edit_btn_{idx}"):
-                            st.session_state["edit_index"] = idx
-                            st.rerun()
-                    with c2:
-                        if st.button("🗑️ 削除する", key=f"del_btn_{idx}"):
-                            df_del = load_data()
-                            df_del = df_del.drop(idx)
-                            df_del[BASE_COLUMNS].to_excel(EXCEL_FILE, index=False)
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("✏️ 編集する", key=f"edit_btn_{idx}"):
+                        st.session_state["edit_index"] = idx
+                        st.rerun()
+                with c2:
+                    if st.button("🗑️ 削除する", key=f"del_btn_{idx}"):
+                        df_del = df_all.drop(idx)
+                        if update_all_sheet_data(df_del):
                             st.success("削除しました！")
                             st.rerun()
 
-        total_sum = pd.to_numeric(df_current['金額'], errors='coerce').fillna(0).sum()
-        st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
-
-    # 📥 Excelダウンロードボタン
-    st.markdown("---")
-    with open(EXCEL_FILE, "rb") as f:
-        st.download_button(
-            label="📥 家計簿データをExcelでダウンロード",
-            data=f,
-            file_name="kakeibo_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+    total_sum = pd.to_numeric(df_all['金額'], errors='coerce').fillna(0).sum()
+    st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
