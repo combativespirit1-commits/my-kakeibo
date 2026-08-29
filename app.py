@@ -56,15 +56,30 @@ st.markdown("""
     input { color: #FFFFFF !important; background-color: #161B22 !important; }
     div[data-baseweb="input"] { background-color: #161B22 !important; border-color: #30363D !important; }
 
-    /* テンキーボタン */
+    /* スマホ画面でのテンキー縦並び防止＆サイズ最適化 */
+    div[data-testid="stHorizontalBlock"]:has(button) {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+    }
+    
+    div[data-testid="stHorizontalBlock"]:has(button) > div {
+        width: 25% !important;
+        min-width: 0 !important;
+        flex: 1 1 0% !important;
+    }
+
+    /* テンキーボタン（コンパクト化） */
     div[data-testid="stColumn"] button {
         background-color: #30363D !important;
         color: #FFFFFF !important;
-        font-size: 1.3rem !important;
-        font-weight: 800 !important;
+        font-size: 1.0rem !important;
+        font-weight: 700 !important;
         border: 1px solid #8B949E !important;
-        border-radius: 8px !important;
-        height: 3.2rem !important;
+        border-radius: 6px !important;
+        height: 2.6rem !important;
+        padding: 0px !important;
     }
     div[data-testid="stColumn"] button:hover { background-color: #484F58 !important; border-color: #58A6FF !important; }
 
@@ -384,7 +399,7 @@ if os.path.exists(EXCEL_FILE):
         total_sum = pd.to_numeric(df_current['金額'], errors='coerce').fillna(0).sum()
         st.caption(f"現在の全期間合計支出: {int(total_sum):,} 円")
 
-    # 📥 Excelダウンロードボタン（高コントラスト文字対応）
+    # 📥 Excelダウンロードボタン
     st.markdown("---")
     with open(EXCEL_FILE, "rb") as f:
         st.download_button(
