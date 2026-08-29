@@ -135,7 +135,7 @@ df_all = load_data_from_sheet()
 if "edit_index" not in st.session_state:
     st.session_state["edit_index"] = None
 
-# --- 1. 日付 & カテゴリ大（リアルタイム表示用） ---
+# --- 1. 日付選択 ---
 pay_date = st.date_input("🗓️ 支払い日", datetime.now().date())
 
 if pay_date.day >= 16:
@@ -163,56 +163,8 @@ if not df_all.empty:
 else:
     df_month = pd.DataFrame()
 
-# カテゴリ大選択（予算ゲージ表示用）
-cat_large = st.radio("カテゴリ大", list(CATEGORY_MAP.keys()), horizontal=True)
-
-selected_budget = BUDGET_MAP.get(cat_large, 0)
-if not df_month.empty:
-    selected_spent = pd.to_numeric(df_month[df_month["カテゴリ大"] == cat_large]["金額"], errors="coerce").fillna(0).sum()
-else:
-    selected_spent = 0
-
-selected_remaining = selected_budget - selected_spent
-selected_percent = min(selected_spent / selected_budget, 1.0) if selected_budget > 0 else 0.0
-
-if selected_budget == 0:
-    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 支出: ¥{int(selected_spent):,} (※ 予算未設定)")
-elif selected_remaining < 0:
-    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{int(selected_spent):,} (⚠️ 超過: ¥{abs(int(selected_remaining)):,} 円)")
-else:
-    st.caption(f"🎯 **【{cat_large}】({target_period_label})** 予算: ¥{selected_budget:,} / 支出: ¥{int(selected_spent):,} (残り: ¥{int(selected_remaining):,} 円)")
-
-st.progress(selected_percent)
-
-# --- 2. フォーム入力（ノーレイテンシスマホ数字キーボード入力） ---
-with st.form(key="entry_form", clear_on_submit=True):
-    sub_categories = CATEGORY_MAP.get(cat_large, [])
-    cat_medium = st.radio("カテゴリ中", sub_categories, horizontal=True)
-
-    amount_input = st.number_input("💵 金額", min_value=0, value=None, step=1, placeholder="0")
-    cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細な分類やアイテム名など")
-    memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
-
-    submit_btn = st.form_submit_button("💾 記録する", type="primary", use_container_width=True)
-
-# フォーム送信処理
-if submit_btn:
-    if amount_input is not None and amount_input > 0:
-        entry_date = datetime.now().strftime("%Y-%m-%d")
-        pay_date_str = pay_date.strftime("%Y-%m-%d")
-        
-        row_data = [pay_date_str, entry_date, cat_large, cat_medium, cat_small, str(int(amount_input)), str(memo)]
-        
-        if append_data_to_sheet(row_data):
-            st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {int(amount_input):,}円")
-            st.rerun()
-    else:
-        st.warning("金額を入力してください。")
-
-st.divider()
-
-# --- 3. 予算状況サマリー ---
-st.subheader(f"📊 全カテゴリ（{target_period_label}）の予算状況")
+# --- 2. 全カテゴリの予算状況サマリー（上段に移動） ---
+st.subheader(f"📊 予算状況 ({target_period_label})")
 
 total_budget = sum(BUDGET_MAP.values())
 if not df_month.empty:
@@ -253,6 +205,35 @@ for cat, budget in BUDGET_MAP.items():
             st.caption(f"予算: ¥{budget:,} / 支出: ¥{int(spent):,} (残り: ¥{int(remaining):,} 円)")
     
     st.progress(percent)
+
+st.divider()
+
+# --- 3. フォーム入力（ノーレイテンシスマホ数字キーボード入力） ---
+with st.form(key="entry_form", clear_on_submit=True):
+    cat_large = st.radio("カテゴリ大", list(CATEGORY_MAP.keys()), horizontal=True)
+    
+    sub_categories = CATEGORY_MAP.get(cat_large, [])
+    cat_medium = st.radio("カテゴリ中", sub_categories, horizontal=True)
+
+    amount_input = st.number_input("💵 金額", min_value=0, value=None, step=1, placeholder="0")
+    cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細な分類やアイテム名など")
+    memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
+
+    submit_btn = st.form_submit_button("💾 記録する", type="primary", use_container_width=True)
+
+# フォーム送信処理
+if submit_btn:
+    if amount_input is not None and amount_input > 0:
+        entry_date = datetime.now().strftime("%Y-%m-%d")
+        pay_date_str = pay_date.strftime("%Y-%m-%d")
+        
+        row_data = [pay_date_str, entry_date, cat_large, cat_medium, cat_small, str(int(amount_input)), str(memo)]
+        
+        if append_data_to_sheet(row_data):
+            st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {int(amount_input):,}円")
+            st.rerun()
+    else:
+        st.warning("金額を入力してください。")
 
 # --- 4. 履歴 ---
 st.divider()
