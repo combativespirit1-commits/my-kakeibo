@@ -2,6 +2,7 @@ import os
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import gspread
 from google.oauth2.service_account import Credentials
 import traceback
@@ -35,14 +36,12 @@ def get_gspread_client():
     else:
         creds_dict = dict(sec)
 
-    # private_key 内の改行補正のみ実施
     if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
         creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
-# ★作成したGoogleスプレッドシートの「ファイル名」
 SPREADSHEET_NAME = "家計簿データ" 
 BASE_COLUMNS = ["支払い日", "入力日", "カテゴリ大", "カテゴリ中", "カテゴリ小", "金額", "メモ"]
 
@@ -111,30 +110,6 @@ st.markdown("""
     input { color: #FFFFFF !important; background-color: #161B22 !important; }
     div[data-baseweb="input"] { background-color: #161B22 !important; border-color: #30363D !important; }
 
-    div[data-testid="stHorizontalBlock"]:has(button) {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        gap: 4px !important;
-    }
-    div[data-testid="stHorizontalBlock"]:has(button) > div {
-        width: 25% !important;
-        min-width: 0 !important;
-        flex: 1 1 0% !important;
-    }
-
-    div[data-testid="stColumn"] button {
-        background-color: #30363D !important;
-        color: #FFFFFF !important;
-        font-size: 1.0rem !important;
-        font-weight: 700 !important;
-        border: 1px solid #8B949E !important;
-        border-radius: 6px !important;
-        height: 2.6rem !important;
-        padding: 0px !important;
-    }
-    div[data-testid="stColumn"] button:hover { background-color: #484F58 !important; border-color: #58A6FF !important; }
-
     button[kind="primary"] {
         background: linear-gradient(135deg, #1F6FEB 0%, #238636 100%) !important;
         color: #FFFFFF !important;
@@ -155,8 +130,6 @@ st.title("💳 家計簿入力アプリ")
 
 df_all = load_data_from_sheet()
 
-if "amount_str" not in st.session_state:
-    st.session_state["amount_str"] = "0"
 if "edit_index" not in st.session_state:
     st.session_state["edit_index"] = None
 
@@ -216,69 +189,128 @@ cat_small = st.text_input("カテゴリ小 (自由記入)", placeholder="詳細�
 
 st.markdown("---")
 
-# --- 2. テンキー & 直接入力 ---
+# --- 2. 超高速キーパッド ---
 st.caption("💵 金額を入力")
 
-input_val = st.number_input(
-    "金額（手入力・テンキー連動）",
+amount_val = st.number_input(
+    "金額（キーパッド / キーボード両対応）",
     min_value=0,
-    value=int(st.session_state["amount_str"]),
-    step=1
+    value=0,
+    step=100,
+    key="amount_input"
 )
 
-if input_val != int(st.session_state["amount_str"]):
-    st.session_state["amount_str"] = str(input_val)
+# JavaScriptによる完全ローカル制御テンキー
+keypad_html = """
+<style>
+    .keypad-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin-top: 4px;
+        margin-bottom: 10px;
+    }
+    .keypad-btn {
+        background-color: #30363D;
+        color: #FFFFFF;
+        font-size: 1.1rem;
+        font-weight: 700;
+        border: 1px solid #8B949E;
+        border-radius: 6px;
+        height: 2.8rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .keypad-btn:active {
+        background-color: #58A6FF !important;
+        transform: scale(0.96);
+    }
+</style>
 
-def press_num(num_str):
-    if st.session_state["amount_str"] == "0":
-        st.session_state["amount_str"] = num_str
-    elif len(st.session_state["amount_str"]) < 9:
-        st.session_state["amount_str"] += num_str
+<div class="keypad-grid">
+    <button class="keypad-btn" onclick="press('7')">7</button>
+    <button class="keypad-btn" onclick="press('8')">8</button>
+    <button class="keypad-btn" onclick="press('9')">9</button>
+    <button class="keypad-btn" onclick="clearVal()">C</button>
+    
+    <button class="keypad-btn" onclick="press('4')">4</button>
+    <button class="keypad-btn" onclick="press('5')">5</button>
+    <button class="keypad-btn" onclick="press('6')">6</button>
+    <button class="keypad-btn" onclick="addVal(100)">+100</button>
+    
+    <button class="keypad-btn" onclick="press('1')">1</button>
+    <button class="keypad-btn" onclick="press('2')">2</button>
+    <button class="keypad-btn" onclick="press('3')">3</button>
+    <button class="keypad-btn" onclick="addVal(500)">+500</button>
+    
+    <button class="keypad-btn" onclick="press('0')">0</button>
+    <button class="keypad-btn" onclick="press('00')">00</button>
+    <button class="keypad-btn" onclick="backspace()">⌫</button>
+    <button class="keypad-btn" onclick="addVal(1000)">+1k</button>
+</div>
 
-def press_add(val):
-    cur = int(st.session_state["amount_str"])
-    st.session_state["amount_str"] = str(cur + val)
+<script>
+function getTargetInput() {
+    return window.parent.document.querySelector('input[data-testid="stNumberInput-Input"]');
+}
 
-k1, k2, k3, k4 = st.columns(4)
-with k1:
-    if st.button("7", use_container_width=True): press_num("7"); st.rerun()
-    if st.button("4", use_container_width=True): press_num("4"); st.rerun()
-    if st.button("1", use_container_width=True): press_num("1"); st.rerun()
-    if st.button("0", use_container_width=True): press_num("0"); st.rerun()
+function triggerEvent(el) {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+}
 
-with k2:
-    if st.button("8", use_container_width=True): press_num("8"); st.rerun()
-    if st.button("5", use_container_width=True): press_num("5"); st.rerun()
-    if st.button("2", use_container_width=True): press_num("2"); st.rerun()
-    if st.button("00", use_container_width=True):
-        if st.session_state["amount_str"] != "0" and len(st.session_state["amount_str"]) <= 7:
-            st.session_state["amount_str"] += "00"
-            st.rerun()
+function press(num) {
+    const input = getTargetInput();
+    if (!input) return;
+    let cur = input.value || "0";
+    if (cur === "0") {
+        input.value = num;
+    } else {
+        input.value = cur + num;
+    }
+    triggerEvent(input);
+}
 
-with k3:
-    if st.button("9", use_container_width=True): press_num("9"); st.rerun()
-    if st.button("6", use_container_width=True): press_num("6"); st.rerun()
-    if st.button("3", use_container_width=True): press_num("3"); st.rerun()
-    if st.button("⌫", use_container_width=True):
-        if len(st.session_state["amount_str"]) > 1:
-            st.session_state["amount_str"] = st.session_state["amount_str"][:-1]
-        else:
-            st.session_state["amount_str"] = "0"
-        st.rerun()
+function addVal(val) {
+    const input = getTargetInput();
+    if (!input) return;
+    let cur = parseInt(input.value, 10) || 0;
+    input.value = cur + val;
+    triggerEvent(input);
+}
 
-with k4:
-    if st.button("C", use_container_width=True):
-        st.session_state["amount_str"] = "0"
-        st.rerun()
-    if st.button("+100", use_container_width=True): press_add(100); st.rerun()
-    if st.button("+500", use_container_width=True): press_add(500); st.rerun()
-    if st.button("+1k", use_container_width=True): press_add(1000); st.rerun()
+function backspace() {
+    const input = getTargetInput();
+    if (!input) return;
+    let cur = input.value || "0";
+    if (cur.length > 1) {
+        input.value = cur.slice(0, -1);
+    } else {
+        input.value = "0";
+    }
+    triggerEvent(input);
+}
+
+function clearVal() {
+    const input = getTargetInput();
+    if (!input) return;
+    input.value = "0";
+    triggerEvent(input);
+}
+</script>
+"""
+
+components.html(keypad_html, height=210)
 
 # --- 3. メモ & 登録ボタン ---
 memo = st.text_input("📝 メモ (任意)", placeholder="店名やその他補足など")
 
 if st.button("💾 記録する", type="primary", use_container_width=True):
-    current_amount = int(st.session_state["amount_str"])
+    current_amount = int(amount_val)
     if current_amount > 0:
         entry_date = datetime.now().strftime("%Y-%m-%d")
         pay_date_str = pay_date.strftime("%Y-%m-%d")
@@ -287,7 +319,6 @@ if st.button("💾 記録する", type="primary", use_container_width=True):
         
         if append_data_to_sheet(row_data):
             st.success(f"保存完了：[{pay_date_str}] {cat_large} ➔ {cat_medium} - {current_amount:,}円")
-            st.session_state["amount_str"] = "0"
             st.rerun()
     else:
         st.warning("金額を入力してください。")
