@@ -355,7 +355,8 @@ if not df_month.empty:
     df_chart = df_chart[df_chart["金額_num"] > 0]
     
     if not df_chart.empty:
-        df_chart["カテゴリ詳細"] = df_chart["カテゴリ大"] + " : " + df_chart["カテゴリ中"]
+        # カテゴリ名称を2段（改行 <br>）で作成して省スペース化
+        df_chart["カテゴリ詳細"] = df_chart["カテゴリ大"] + "<br>" + df_chart["カテゴリ中"]
         
         df_chart["支払い件数"] = df_chart.groupby("カテゴリ詳細").cumcount() + 1
         df_chart["内訳"] = df_chart.apply(
@@ -368,18 +369,20 @@ if not df_month.empty:
             y="カテゴリ詳細",
             color="内訳",
             orientation="h",
-            labels={"金額_num": "金額 (円)", "カテゴリ詳細": "カテゴリ"},
+            labels={"金額_num": "金額 (円)", "カテゴリ詳細": ""},
             hover_data=["支払い日", "金額_num", "カテゴリ小", "メモ"]
         )
         
+        # スマホ表示に最適化（余白を限界まで削り、グラフ幅を最大化）
         fig.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#FFFFFF"),
+            font=dict(color="#FFFFFF", size=11),
             showlegend=False,
-            xaxis=dict(showgrid=True, gridcolor="#30363D"),
-            yaxis=dict(autorange="reversed"),
-            margin=dict(l=10, r=10, t=10, b=10)
+            xaxis=dict(showgrid=True, gridcolor="#30363D", title=None),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+            margin=dict(l=0, r=10, t=10, b=10),
+            height=400
         )
         
         fig.update_traces(
