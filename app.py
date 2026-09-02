@@ -141,23 +141,21 @@ if "pay_date" not in st.session_state:
 
 current_pay_date = st.session_state["pay_date"]
 
-# 集計期間の判定
+# --- 集計期間（締め日）の正確な計算 ---
 if current_pay_date.day >= 16:
+    start_date = date(current_pay_date.year, current_pay_date.month, 16)
     if current_pay_date.month == 12:
-        start_date = date(current_pay_date.year, 12, 16)
         end_date = date(current_pay_date.year + 1, 1, 15)
     else:
-        start_date = date(current_pay_date.year, current_pay_date.month, 16)
         end_date = date(current_pay_date.year, current_pay_date.month + 1, 15)
     target_period_label = f"{current_pay_date.month}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 else:
+    end_date = date(current_pay_date.year, current_pay_date.month, 15)
     if current_pay_date.month == 1:
         start_date = date(current_pay_date.year - 1, 12, 16)
-        end_date = date(current_pay_date.year, 1, 15)
         target_period_label = f"12月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
     else:
         start_date = date(current_pay_date.year, current_pay_date.month - 1, 16)
-        end_date = date(current_pay_date.year, current_pay_date.month - 1, 15)
         target_period_label = f"{current_pay_date.month - 1}月分 ({start_date.strftime('%m/%d')}〜{end_date.strftime('%m/%d')})"
 
 if not df_all.empty:
@@ -212,14 +210,13 @@ for cat, budget in BUDGET_MAP.items():
 
 st.divider()
 
-# --- 2. 支払い日の選択（予算vs実績グラフの下へ移動） ---
+# --- 2. 支払い日の選択 ---
 pay_date = st.date_input("🗓️ 支払い日", value=current_pay_date, key="pay_date_input")
 st.session_state["pay_date"] = pay_date
 
-# --- 3. フォーム入力（カテゴリ選択時に個別の予算vs実績グラフも復活） ---
+# --- 3. フォーム入力 ---
 selected_cat_large = st.radio("カテゴリ大", list(CATEGORY_MAP.keys()), horizontal=True, key="cat_large_radio")
 
-# 選択されたカテゴリ大の予算 vs 実績グラフを表示
 cat_budget = BUDGET_MAP.get(selected_cat_large, 0)
 if not df_month.empty:
     cat_spent = pd.to_numeric(df_month[df_month["カテゴリ大"] == selected_cat_large]["金額"], errors="coerce").fillna(0).sum()
